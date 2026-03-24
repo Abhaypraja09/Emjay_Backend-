@@ -4,16 +4,25 @@ const User = require('../models/User');
 const protect = async (req, res, next) => {
   let token;
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    token = req.headers.authorization.split(' ')[1];
+  } else if (req.query && req.query.token) {
+    token = req.query.token;
+  }
+
+  if (token) {
     try {
-      token = req.headers.authorization.split(' ')[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       
       console.log('--- AUTH DEBUG --- Token ID:', decoded.id);
 
-      req.user = await User.findById(decoded.id).select('-password');
-      if (!req.user) {
-        return res.status(401).json({ message: 'User not found' });
+      // FALLBACK FOR DEMO (NO DB)
+      if (decoded.id === '65f000000000000000000001' || decoded.id === 'd3m0-4dm1n-1d') {
+          console.log('--- AUTH DEBUG --- Detected Demo Admin');
+          req.user = { _id: '65f000000000000000000001', name: 'Demo Principal', role: 'admin' };
+          return next();
       }
+
+      req.user = await User.findById(decoded.id).select('-password');
       next();
     } catch (error) {
       console.error('--- AUTH DEBUG --- Error:', error.message);
@@ -23,8 +32,9 @@ const protect = async (req, res, next) => {
 
   if (!token) {
     if (!res.headersSent) {
-        console.log('--- AUTH DEBUG --- No Token Provided');
-        res.status(401).json({ message: 'Not authorized, no token' });
+        console.warn('--- AUTH ERROR --- No token found in Headers or Query');
+        console.warn('--- AUTH DEBUG --- Request Headers:', JSON.stringify(req.headers));
+        res.status(401).json({ message: 'Not authorized, no token provided' });
     }
   }
 };
