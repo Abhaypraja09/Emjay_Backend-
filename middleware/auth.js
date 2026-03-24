@@ -10,14 +10,10 @@ const protect = async (req, res, next) => {
       
       console.log('--- AUTH DEBUG --- Token ID:', decoded.id);
 
-      // FALLBACK FOR DEMO (NO DB)
-      if (decoded.id === '65f000000000000000000001' || decoded.id === 'd3m0-4dm1n-1d') {
-          console.log('--- AUTH DEBUG --- Detected Demo Admin');
-          req.user = { _id: '65f000000000000000000001', name: 'Demo Principal', role: 'admin' };
-          return next();
-      }
-
       req.user = await User.findById(decoded.id).select('-password');
+      if (!req.user) {
+        return res.status(401).json({ message: 'User not found' });
+      }
       next();
     } catch (error) {
       console.error('--- AUTH DEBUG --- Error:', error.message);

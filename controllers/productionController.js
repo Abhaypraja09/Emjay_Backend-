@@ -55,11 +55,8 @@ const getProductions = async (req, res) => {
     const productions = await Production.find({}).populate('juiceType').sort({ createdAt: -1 });
     res.json(productions);
   } catch (error) {
-    // FALLBACK FOR DEMO (NO DB)
-    res.json([
-      { _id: 'pr1', juiceType: { name: 'Apple Spark' }, quantityProduced: 500, date: new Date() },
-      { _id: 'pr2', juiceType: { name: 'Mango Blast' }, quantityProduced: 300, date: new Date() }
-    ]);
+    console.error(`Get productions error: ${error.message}`);
+    res.status(500).json({ message: 'Error fetching production records' });
   }
 };
 

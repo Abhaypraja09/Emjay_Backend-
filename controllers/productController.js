@@ -19,12 +19,8 @@ const getProducts = async (req, res) => {
     const products = await Product.find({});
     res.json(products);
   } catch (error) {
-    // FALLBACK FOR DEMO (NO DB)
-    res.json([
-      { _id: 'p1', name: 'Apple Spark', description: 'Fresh apple juice', pricePerUnit: 45, currentStock: 150, lowStockThreshold: 10 },
-      { _id: 'p2', name: 'Mango Blast', description: 'King of fruits', pricePerUnit: 55, currentStock: 5, lowStockThreshold: 15 },
-      { _id: 'p3', name: 'Orange Tang', description: 'Citrus delight', pricePerUnit: 50, currentStock: 80, lowStockThreshold: 10 }
-    ]);
+    console.error(`Get products error: ${error.message}`);
+    res.status(500).json({ message: 'Error fetching products' });
   }
 };
 

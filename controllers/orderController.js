@@ -47,33 +47,8 @@ const getOrders = async (req, res) => {
     const orders = await Order.find({}).populate('items.juiceType').sort({ createdAt: -1 });
     res.json(orders);
   } catch (error) {
-    // FALLBACK FOR DEMO (NO DB)
-    res.json([
-      { 
-        _id: 'o1', 
-        customerName: 'Aman Retailers', 
-        type: 'B2B', 
-        totalAmount: 12500, 
-        paidAmount: 12500, 
-        dueAmount: 0, 
-        paymentStatus: 'paid', 
-        orderStatus: 'delivered', 
-        date: new Date(),
-        items: [{ juiceType: { name: 'Apple Spark' }, quantity: 100, price: 45 }]
-      },
-      { 
-        _id: 'o2', 
-        customerName: 'Local Gym', 
-        type: 'B2C', 
-        totalAmount: 4500, 
-        paidAmount: 2000, 
-        dueAmount: 2500, 
-        paymentStatus: 'partial', 
-        orderStatus: 'pending', 
-        date: new Date(),
-        items: [{ juiceType: { name: 'Mango Blast' }, quantity: 40, price: 55 }]
-      }
-    ]);
+    console.error(`Get orders error: ${error.message}`);
+    res.status(500).json({ message: 'Error fetching orders' });
   }
 };
 

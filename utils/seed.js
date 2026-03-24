@@ -21,13 +21,7 @@ const users = [
   },
 ];
 
-const products = [
-    { name: 'Apple Spark', pricePerUnit: 45, lowStockThreshold: 10 },
-    { name: 'Mango Blast', pricePerUnit: 55, lowStockThreshold: 15 },
-    { name: 'Orange Tang', pricePerUnit: 50, lowStockThreshold: 10 },
-    { name: 'Guava Glow', pricePerUnit: 60, lowStockThreshold: 5 },
-    { name: 'Mixed Fruit', pricePerUnit: 65, lowStockThreshold: 8 },
-];
+const products = [];
 
 const seedDB = async () => {
   try {
@@ -39,17 +33,8 @@ const seedDB = async () => {
     await BottleInventory.deleteMany();
 
     await User.create(users);
-    await Product.create(products);
-
-    // Add initial bottle stock
-    await BottleInventory.create({
-        quantity: 1000,
-        costPerUnit: 5,
-        totalCost: 5000,
-        supplierName: 'Main Bottle Co',
-        type: 'IN',
-        description: 'Store opening stock'
-    });
+    
+    console.log('Database seeded successfully (Users only)!');
 
     console.log('Database seeded successfully!');
     process.exit();
