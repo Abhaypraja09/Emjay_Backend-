@@ -37,7 +37,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Fallback for all other routes to serve index.html (Next.js SPA)
-app.get('*', (req, res) => {
+app.get('(.*)', (req, res) => {
   if (req.originalUrl.startsWith('/api')) {
     return res.status(404).json({ message: 'API route not found' });
   }
