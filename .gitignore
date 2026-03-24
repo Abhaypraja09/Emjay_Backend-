@@ -11,4 +11,4 @@ coverage/
 dist/
 build/
 .cache/
-package-lock.json
+# package-lock.json
