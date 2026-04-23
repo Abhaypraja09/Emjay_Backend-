@@ -2,12 +2,14 @@ const BottleInventory = require('../models/BottleInventory');
 
 const addBottlePurchase = async (req, res) => {
   try {
-    const { quantity, costPerUnit, totalCost, supplierName, date, description } = req.body;
+    const { quantity, costPerUnit, totalCost, supplierName, date, description, bottleType } = req.body;
     const purchase = await BottleInventory.create({
+      companyId: req.user.companyId,
       quantity,
       costPerUnit,
       totalCost,
       supplierName,
+      bottleType: bottleType || 'New',
       date: date || Date.now(),
       type: 'IN',
       description
@@ -21,34 +23,46 @@ const addBottlePurchase = async (req, res) => {
 
 const getBottleStock = async (req, res) => {
   try {
-    const records = await BottleInventory.find({});
-    const totalPurchased = records.filter(r => r.type === 'IN').reduce((acc, r) => acc + r.quantity, 0);
-    const totalUsed = records.filter(r => r.type === 'OUT').reduce((acc, r) => acc + r.quantity, 0);
+    const { month, year } = req.query;
+    const query = { companyId: req.user.companyId };
+
+    if (month && year) {
+      const startDate = new Date(parseInt(year), parseInt(month) - 1, 1);
+      const endDate = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999);
+      query.date = { $gte: startDate, $lte: endDate };
+    }
+
+    const records = await BottleInventory.find(query).sort({ date: 1 });
+    
+    // Bottles Stats (New + Old)
+    const bottles = records.filter(r => r.bottleType !== 'Caps');
+    const totalPurchased = bottles.filter(r => r.type === 'IN').reduce((acc, r) => acc + r.quantity, 0);
+    const totalUsed = bottles.filter(r => r.type === 'OUT').reduce((acc, r) => acc + r.quantity, 0);
     const availableEmptyBottles = totalPurchased - totalUsed;
 
+    // Caps Stats
+    const caps = records.filter(r => r.bottleType === 'Caps');
+    const totalCapsPurchased = caps.filter(r => r.type === 'IN').reduce((acc, r) => acc + r.quantity, 0);
+    const totalCapsUsed = caps.filter(r => r.type === 'OUT').reduce((acc, r) => acc + r.quantity, 0);
+    const availableCaps = totalCapsPurchased - totalCapsUsed;
+
     res.json({
-      totalPurchased,
-      totalUsed,
-      availableEmptyBottles,
+      totalPurchased, // Total Buy Bottles
+      totalUsed,      // Total Production
+      availableEmptyBottles, // Empty Bottles
+      availableCaps,
+      totalCapsPurchased,
+      totalCapsUsed,
       history: records
     });
   } catch (error) {
-    // FALLBACK FOR DEMO (NO DB)
-    res.json({
-      totalPurchased: 10000,
-      totalUsed: 6500,
-      availableEmptyBottles: 3500,
-      history: [
-          { _id: 'b1', date: new Date(), supplierName: 'Main Bottle Co', quantity: 5000, costPerUnit: 5, totalCost: 25000, type: 'IN' },
-          { _id: 'b2', date: new Date(), supplierName: 'Production Out', quantity: 6500, costPerUnit: 0, totalCost: 0, type: 'OUT' }
-      ]
-    });
+    res.status(500).json({ message: error.message });
   }
 };
 
 const deleteBottlePurchase = async (req, res) => {
   try {
-    const purchase = await BottleInventory.findById(req.params.id);
+    const purchase = await BottleInventory.findOne({ _id: req.params.id, companyId: req.user.companyId });
     if (purchase) {
       await purchase.deleteOne();
       res.json({ message: 'Purchase record removed' });
@@ -62,15 +76,12 @@ const deleteBottlePurchase = async (req, res) => {
 
 const updateBottlePurchase = async (req, res) => {
   try {
-    const purchase = await BottleInventory.findById(req.params.id);
+    const purchase = await BottleInventory.findOne({ _id: req.params.id, companyId: req.user.companyId });
     if (purchase) {
-      purchase.quantity = req.body.quantity || purchase.quantity;
-      purchase.costPerUnit = req.body.costPerUnit || purchase.costPerUnit;
-      purchase.totalCost = req.body.totalCost || (purchase.quantity * purchase.costPerUnit);
-      purchase.supplierName = req.body.supplierName || purchase.supplierName;
-      purchase.date = req.body.date || purchase.date;
-      purchase.description = req.body.description || purchase.description;
-
+        Object.assign(purchase, req.body);
+        if (req.body.quantity && req.body.costPerUnit) {
+            purchase.totalCost = req.body.quantity * req.body.costPerUnit;
+        }
       const updated = await purchase.save();
       res.json(updated);
     } else {

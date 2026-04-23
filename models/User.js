@@ -5,7 +5,8 @@ const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  role: { type: String, enum: ['admin', 'staff'], default: 'staff' },
+  role: { type: String, enum: ['admin', 'staff', 'vendor'], default: 'staff' },
+  companyId: { type: String, required: true, default: 'emjay-master' }, // For Multi-tenancy
 }, { timestamps: true });
 
 userSchema.index({ email: 1 });

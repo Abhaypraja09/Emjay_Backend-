@@ -3,117 +3,235 @@ const Product = require('../models/Product');
 const BottleInventory = require('../models/BottleInventory');
 
 const createProduction = async (req, res) => {
+  console.log('--- STARTING PRODUCTION CREATE (PRECISION LINK) ---');
+  
   try {
-    const { juiceType, quantityProduced, date } = req.body;
+    const { 
+        juiceType, 
+        quantityProduced, 
+        date, 
+        nameOfVerk, 
+        footValue, 
+        openingBalance, 
+        bottleType, 
+        sizeCategory, 
+        costValue 
+    } = req.body;
 
-    // 1. Check if enough empty bottles are available
-    const records = await BottleInventory.find({});
-    const totalPurchased = records.filter(r => r.type === 'IN').reduce((acc, r) => acc + r.quantity, 0);
-    const totalUsed = records.filter(r => r.type === 'OUT').reduce((acc, r) => acc + r.quantity, 0);
-    const availableEmptyBottles = totalPurchased - totalUsed;
+    const qty = Number(quantityProduced) || 0;
 
-    console.log(`--- PRODUCTION DEBUG --- Req=${quantityProduced}, Bottles Available=${availableEmptyBottles}`);
-
-    if (quantityProduced > availableEmptyBottles) {
-      console.log('--- PRODUCTION DEBUG --- REJECTED: Not enough empty bottles');
-      return res.status(400).json({ message: 'Not enough empty bottles in stock' });
+    if (!juiceType || qty <= 0 || !req.user) {
+        return res.status(400).json({ message: 'Missing required fields' });
     }
 
-    // 2. Create production record
+    // 1. STRICT BOTTLE & CAP CHECK
+    const records = await BottleInventory.find({ companyId: req.user.companyId });
+    
+    // Bottles check
+    const bottlesIn = records.filter(r => r.type === 'IN' && r.bottleType !== 'Caps').reduce((acc, r) => acc + r.quantity, 0);
+    const bottlesOut = records.filter(r => r.type === 'OUT' && r.bottleType !== 'Caps').reduce((acc, r) => acc + r.quantity, 0);
+    const availableEmptyBottles = bottlesIn - bottlesOut;
+
+    // Caps check
+    const capsIn = records.filter(r => r.type === 'IN' && r.bottleType === 'Caps').reduce((acc, r) => acc + r.quantity, 0);
+    const capsOut = records.filter(r => r.type === 'OUT' && r.bottleType === 'Caps').reduce((acc, r) => acc + r.quantity, 0);
+    const availableCaps = capsIn - capsOut;
+
+    if (qty > availableEmptyBottles) {
+        return res.status(400).json({ 
+            message: `NOT ENOUGH BOTTLES! You need ${qty}, but only ${availableEmptyBottles} avail.` 
+        });
+    }
+    
+    if (qty > availableCaps) {
+        return res.status(400).json({ 
+            message: `NOT ENOUGH CAPS! You need ${qty}, but only ${availableCaps} avail.` 
+        });
+    }
+
+    // 2. CREATE BOTTLE & CAP TRANSACTIONS
+    const bottleAudit = await BottleInventory.create({
+      companyId: req.user.companyId,
+      quantity: qty,
+      costPerUnit: 0,
+      totalCost: 0,
+      supplierName: 'Internal Production',
+      bottleType: bottleType || 'New',
+      type: 'OUT',
+      description: `Used for ${qty} bottles of ${sizeCategory} juice`
+    });
+
+    const capAudit = await BottleInventory.create({
+      companyId: req.user.companyId,
+      quantity: qty,
+      costPerUnit: 0,
+      totalCost: 0,
+      supplierName: 'Internal Production',
+      bottleType: 'Caps',
+      type: 'OUT',
+      description: `Caps used for ${qty} bottles of production`
+    });
+
+    // 3. CREATE PRODUCTION RECORD (With hard links)
     const production = await Production.create({
       juiceType,
-      quantityProduced,
+      companyId: req.user.companyId,
+      quantityProduced: qty,
+      nameOfVerk: nameOfVerk || 'Internal',
+      footValue: footValue || '',
+      bottleType: bottleType || 'New',
+      sizeCategory: sizeCategory || '500ml',
+      costValue: Number(costValue) || 0,
+      openingBalance: Number(openingBalance) || 0,
       date: date || Date.now(),
+      isActive: true,
+      bottleAuditId: bottleAudit._id,
+      capAuditId: capAudit._id, // NEW LINK
       createdBy: req.user._id
     });
 
-    // 3. Deduct empty bottles from stock (add OUT record)
-    await BottleInventory.create({
-      quantity: quantityProduced,
-      costPerUnit: 0, // already paid
-      totalCost: 0,
-      supplierName: 'Internal',
-      type: 'OUT',
-      description: `Production of ${quantityProduced} juice bottles`
-    });
-
-    // 4. Increase filled juice stock
-    const product = await Product.findById(juiceType);
+    // 4. Update Juice Stock
+    const product = await Product.findOne({ _id: juiceType, companyId: req.user.companyId });
     if (product) {
-      product.currentStock += quantityProduced;
+      product.currentStock += qty;
       await product.save();
     }
 
     res.status(201).json(production);
+
   } catch (error) {
+    console.error('--- PRODUCTION ERROR ---', error);
     res.status(400).json({ message: error.message });
   }
 };
 
 const getProductions = async (req, res) => {
   try {
-    const productions = await Production.find({}).populate('juiceType').sort({ createdAt: -1 });
+    const { month, year } = req.query;
+    const query = { companyId: req.user.companyId };
+
+    if (month && year) {
+      const startDate = new Date(parseInt(year), parseInt(month) - 1, 1);
+      const endDate = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999);
+      query.date = { $gte: startDate, $lte: endDate };
+    }
+
+    const productions = await Production.find(query).populate('juiceType').sort({ date: 1 });
     res.json(productions);
   } catch (error) {
-    // FALLBACK FOR DEMO (NO DB)
-    res.json([
-      { _id: 'pr1', juiceType: { name: 'Apple Spark' }, quantityProduced: 500, date: new Date() },
-      { _id: 'pr2', juiceType: { name: 'Mango Blast' }, quantityProduced: 300, date: new Date() }
-    ]);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const updateProduction = async (req, res) => {
+  try {
+    const production = await Production.findOneAndUpdate(
+        { _id: req.params.id, companyId: req.user.companyId }, 
+        req.body, 
+        { new: true }
+    );
+    res.json(production);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
   }
 };
 
 const deleteProduction = async (req, res) => {
   try {
-    const production = await Production.findById(req.params.id);
-    if (!production) {
-      return res.status(404).json({ message: 'Production record not found' });
-    }
+    const prod = await Production.findOne({ _id: req.params.id, companyId: req.user.companyId });
+    if (prod) {
+        // ALWAYS use the hard link to delete the exact bottle transaction
+        if (prod.bottleAuditId) {
+            await BottleInventory.deleteOne({ _id: prod.bottleAuditId });
+            console.log('Linked bottle transaction deleted.');
+        }
 
-    // 1. Rollback Juice Stock
-    const product = await Product.findById(production.juiceType);
-    if (product) {
-      product.currentStock -= production.quantityProduced;
-      await product.save();
-    }
+        if (prod.capAuditId) {
+            await BottleInventory.deleteOne({ _id: prod.capAuditId });
+            console.log('Linked cap transaction deleted.');
+        } else {
+            // Fallback for old records without hard link (regex)
+            await BottleInventory.deleteOne({ 
+                companyId: req.user.companyId, 
+                quantity: prod.quantityProduced, 
+                type: 'OUT',
+                description: { $regex: new RegExp(prod.sizeCategory) }
+            });
+        }
+        
+        // Decrease juice stock
+        const product = await Product.findOne({ _id: prod.juiceType, companyId: req.user.companyId });
+        if (product) {
+            product.currentStock -= prod.quantityProduced;
+            await product.save();
+        }
 
-    // 2. Rollback Bottle Inventory (add back empty bottles)
-    await BottleInventory.create({
-      quantity: production.quantityProduced,
-      costPerUnit: 0,
-      totalCost: 0,
-      supplierName: 'Internal Recovery',
-      type: 'IN',
-      description: `Recovery from deleted production of ${production.quantityProduced} bottles`
-    });
-
-    await production.deleteOne();
-    res.json({ message: 'Production record removed and stock rolled back' });
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-};
-
-const updateProduction = async (req, res) => {
-  // Update is complex due to stock adjustments. 
-  // For simplicity, we'll just allow updating non-quantity fields or return 400 for now.
-  // The user mainly asked for "Edit / Delete" options. 
-  // Let's implement a basic update for 이제 quantities if needed, but for now simple update.
-  try {
-    const production = await Production.findById(req.params.id);
-    if (production) {
-      production.juiceType = req.body.juiceType || production.juiceType;
-      production.date = req.body.date || production.date;
-      // If quantity changes, it gets complicated with stock. 
-      // For now, only juiceType and date update.
-      const updated = await production.save();
-      res.json(updated);
+        await prod.deleteOne();
+        res.json({ message: 'Production deleted and bottles restored' });
     } else {
-      res.status(404).json({ message: 'Production record not found' });
+        res.status(404).json({ message: 'Not found' });
     }
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
 };
 
-module.exports = { createProduction, getProductions, deleteProduction, updateProduction };
+const adjustActiveProduction = async (req, res) => {
+    try {
+        const { amount, type } = req.body;
+        const production = await Production.findOne({ _id: req.params.id, companyId: req.user.companyId });
+        if (!production) return res.status(404).json({ message: 'Production not found' });
+
+        const adj = Number(amount);
+        if (type === 'add') {
+            const records = await BottleInventory.find({ companyId: req.user.companyId });
+            const totalPurchased = records.filter(r => r.type === 'IN').reduce((acc, r) => acc + r.quantity, 0);
+            const totalUsed = records.filter(r => r.type === 'OUT').reduce((acc, r) => acc + r.quantity, 0);
+            const avail = totalPurchased - totalUsed;
+            
+            if (adj > avail) return res.status(400).json({ message: 'Insufficient bottles' });
+
+            production.quantityProduced += adj;
+            await BottleInventory.create({
+                companyId: req.user.companyId,
+                quantity: adj,
+                costPerUnit: 0,
+                totalCost: 0,
+                supplierName: 'Internal Adjustment',
+                type: 'OUT',
+                description: `Adjustment: +${adj} bottles`
+            });
+        } else {
+            production.quantityProduced -= adj;
+            await BottleInventory.create({
+                companyId: req.user.companyId,
+                quantity: adj,
+                costPerUnit: 0,
+                totalCost: 0,
+                supplierName: 'Internal Adjustment',
+                type: 'IN',
+                description: `Adjustment: -${adj} bottles`
+            });
+        }
+        await production.save();
+
+        const product = await Product.findOne({ _id: production.juiceType, companyId: req.user.companyId });
+        if (product) {
+            if (type === 'add') product.currentStock += adj;
+            else product.currentStock -= adj;
+            await product.save();
+        }
+
+        res.json(production);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+
+module.exports = {
+  createProduction,
+  getProductions,
+  updateProduction,
+  deleteProduction,
+  adjustActiveProduction
+};

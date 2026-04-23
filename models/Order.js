@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const orderSchema = new mongoose.Schema({
+  companyId: { type: String, required: true, default: 'emjay-master' },
   customerName: { type: String, required: true },
   shopName: { type: String },
   type: { type: String, enum: ['B2B', 'B2C'], default: 'B2C' },
@@ -13,13 +14,15 @@ const orderSchema = new mongoose.Schema({
   ],
   totalAmount: { type: Number, required: true },
   paidAmount: { type: Number, default: 0 },
-  dueAmount: { type: Number }, // totalAmount - paidAmount
+  dueAmount: { type: Number },
   paymentStatus: { type: String, enum: ['paid', 'unpaid', 'partial'], default: 'unpaid' },
   orderStatus: { type: String, enum: ['pending', 'delivered', 'returned'], default: 'pending' },
   date: { type: Date, default: Date.now },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
 
+orderSchema.index({ companyId: 1, createdAt: -1 });
+orderSchema.index({ companyId: 1, date: -1 });
 orderSchema.index({ createdAt: -1 });
 orderSchema.index({ customerName: 'text', shopName: 'text' });
 

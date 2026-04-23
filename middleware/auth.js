@@ -18,7 +18,7 @@ const protect = async (req, res, next) => {
       // FALLBACK FOR DEMO (NO DB)
       if (decoded.id === '65f000000000000000000001' || decoded.id === 'd3m0-4dm1n-1d') {
           console.log('--- AUTH DEBUG --- Detected Demo Admin');
-          req.user = { _id: '65f000000000000000000001', name: 'Demo Principal', role: 'admin' };
+          req.user = { _id: '65f000000000000000000001', name: 'Demo Principal', role: 'admin', companyId: 'emjay-master' };
           return next();
       }
 

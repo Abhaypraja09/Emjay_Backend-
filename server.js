@@ -12,6 +12,11 @@ const productRoutes = require('./routes/productRoutes');
 const productionRoutes = require('./routes/productionRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
+const staffRoutes = require('./routes/staffRoutes');
+const partyRoutes = require('./routes/partyRoutes');
+const purchaseRoutes = require('./routes/purchaseRoutes');
+const reportRoutes = require('./routes/reportRoutes');
+
 
 dotenv.config();
 
@@ -32,6 +37,11 @@ app.use('/api/products', productRoutes);
 app.use('/api/production', productionRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/staff', staffRoutes);
+app.use('/api/parties', partyRoutes);
+app.use('/api/purchases', purchaseRoutes);
+app.use('/api/reports', reportRoutes);
+
 
 // Serve static files from the 'public' folder
 app.use(express.static(path.join(__dirname, 'public')));

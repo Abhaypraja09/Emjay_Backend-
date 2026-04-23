@@ -1,107 +1,124 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
+const Production = require('../models/Production');
+const mongoose = require('mongoose');
 
 const createOrder = async (req, res) => {
   try {
-    const { customerName, shopName, type, items, totalAmount, paidAmount } = req.body;
-
-    // Check if enough filled stock is available
-    for (const item of items) {
-      const product = await Product.findById(item.juiceType);
-      
-      console.log(`--- ORDER DEBUG --- Checking ${product?.name}: Req=${item.quantity}, Stock=${product?.currentStock}`);
-
+    for (const item of req.body.items) {
+      const jtId = item.juiceType?._id || item.juiceType;
+      const product = await Product.findOne({ _id: jtId, companyId: req.user.companyId });
       if (!product || product.currentStock < item.quantity) {
-        console.log(`--- ORDER DEBUG --- REJECTED: Insufficient stock for ${product?.name}`);
-        return res.status(400).json({ message: `Not enough stock for ${product ? product.name : 'Unknown Product'}` });
+        return res.status(400).json({ message: `Insufficient stock for ${product?.name || 'Product'}. Available: ${product?.currentStock || 0}` });
       }
     }
 
-    // Create order
-    const order = await Order.create({
-      customerName,
-      shopName,
-      type,
-      items,
-      totalAmount,
-      paidAmount,
-      createdBy: req.user._id
-    });
-
-    // Reduce filled stock
-    for (const item of items) {
-      const product = await Product.findById(item.juiceType);
-      product.currentStock -= item.quantity;
-      await product.save();
+    const order = new Order({ ...req.body, companyId: req.user.companyId, createdBy: req.user._id });
+    const savedOrder = await order.save();
+    for (const item of savedOrder.items) {
+      const jtId = item.juiceType?._id || item.juiceType;
+      await Product.findByIdAndUpdate(jtId, { $inc: { currentStock: -item.quantity } });
+      const okd = new Date(savedOrder.date); okd.setHours(0, 0, 0, 0);
+      await Production.findOneAndUpdate(
+          { juiceType: jtId, companyId: req.user.companyId, date: { $gte: okd, $lt: new Date(okd.getTime() + 86400000) } }, 
+          { 
+              $inc: { salesDuringProduction: item.quantity },
+              $setOnInsert: { quantityProduced: 0, date: okd } 
+          }, 
+          { upsert: true }
+      );
     }
-
-    res.status(201).json(order);
-  } catch (error) {
-    console.error('--- ORDER ERROR DEBUG ---', error);
-    res.status(400).json({ message: error.message });
-  }
+    res.status(201).json(savedOrder);
+  } catch (error) { res.status(400).json({ message: error.message }); }
 };
 
 const getOrders = async (req, res) => {
   try {
-    const orders = await Order.find({}).populate('items.juiceType').sort({ createdAt: -1 });
+    const { month, year } = req.query;
+    const query = { companyId: req.user.companyId };
+    
+    if (month && year) {
+      const startDate = new Date(parseInt(year), parseInt(month) - 1, 1);
+      const endDate = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999);
+      query.date = { $gte: startDate, $lte: endDate };
+    }
+
+    const orders = await Order.find(query).populate('items.juiceType').sort({ date: 1 });
     res.json(orders);
-  } catch (error) {
-    // FALLBACK FOR DEMO (NO DB)
-    res.json([
-      { 
-        _id: 'o1', 
-        customerName: 'Aman Retailers', 
-        type: 'B2B', 
-        totalAmount: 12500, 
-        paidAmount: 12500, 
-        dueAmount: 0, 
-        paymentStatus: 'paid', 
-        orderStatus: 'delivered', 
-        date: new Date(),
-        items: [{ juiceType: { name: 'Apple Spark' }, quantity: 100, price: 45 }]
-      },
-      { 
-        _id: 'o2', 
-        customerName: 'Local Gym', 
-        type: 'B2C', 
-        totalAmount: 4500, 
-        paidAmount: 2000, 
-        dueAmount: 2500, 
-        paymentStatus: 'partial', 
-        orderStatus: 'pending', 
-        date: new Date(),
-        items: [{ juiceType: { name: 'Mango Blast' }, quantity: 40, price: 55 }]
-      }
-    ]);
-  }
+  } catch (error) { res.status(400).json({ message: error.message }); }
 };
 
-const updateOrderStatus = async (req, res) => {
+const updateOrder = async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
-    if (order) {
-      order.orderStatus = req.body.status || order.orderStatus;
-      const updatedOrder = await order.save();
-      res.json(updatedOrder);
-    } else {
-      res.status(404).json({ message: 'Order not found' });
-    }
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-};
+    const { id } = req.params;
+    const { customerName, shopName, type, items, totalAmount, paidAmount, date } = req.body;
 
-const updateOrderPayment = async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id);
-    if (order) {
-      order.paidAmount = req.body.paidAmount || order.paidAmount;
-      const updatedOrder = await order.save();
-      res.json(updatedOrder);
-    } else {
-      res.status(404).json({ message: 'Order not found' });
+    const oldOrder = await Order.findById(id);
+    if (!oldOrder) return res.status(404).json({ message: 'Order not found' });
+
+    // Inventory Validation (Pre-check)
+    for (const it of items) {
+       const jtId = it.juiceType?._id || it.juiceType;
+       const product = await Product.findOne({ _id: jtId, companyId: req.user.companyId });
+       const oldItem = oldOrder.items.find(oi => oi.juiceType.toString() === jtId.toString());
+       const oldQty = oldItem ? oldItem.quantity : 0;
+       
+       // New Stock Needed = New Qty - Old Qty
+       const diff = Number(it.quantity) - oldQty;
+       if (product.currentStock < diff) {
+         return res.status(400).json({ message: `Insufficient stock. Additional required: ${diff}, Available: ${product.currentStock}` });
+       }
     }
+
+    // Inventory Rollback
+    for (const item of oldOrder.items) {
+      const jtId = item.juiceType?._id || item.juiceType;
+      await Product.findByIdAndUpdate(jtId, { $inc: { currentStock: item.quantity } });
+      const okd = new Date(oldOrder.date); okd.setHours(0, 0, 0, 0);
+      await Production.findOneAndUpdate({ juiceType: jtId, companyId: req.user.companyId, date: { $gte: okd, $lt: new Date(okd.getTime() + 86400000) } }, { $inc: { salesDuringProduction: -item.quantity } });
+    }
+
+    // DIRECT MONGODB UPDATE (Bypassing Mongoose complexity)
+    const rawItems = items.map(it => ({
+      juiceType: new mongoose.Types.ObjectId(it.juiceType?._id || it.juiceType),
+      quantity: Number(it.quantity),
+      price: Number(it.price)
+    }));
+
+    await mongoose.connection.db.collection('orders').updateOne(
+        { _id: new mongoose.Types.ObjectId(id) },
+        { 
+          $set: {
+            customerName,
+            shopName,
+            type,
+            items: rawItems,
+            totalAmount: Number(totalAmount),
+            paidAmount: Number(paidAmount || 0),
+            date: date ? new Date(date) : oldOrder.date,
+            updatedAt: new Date()
+          }
+        }
+    );
+
+    const updatedOrder = await Order.findById(id);
+
+    // Subtract new stock
+    for (const item of updatedOrder.items) {
+      const jtId = item.juiceType?._id || item.juiceType;
+      await Product.findByIdAndUpdate(jtId, { $inc: { currentStock: -item.quantity } });
+      const nkd = new Date(updatedOrder.date); nkd.setHours(0, 0, 0, 0);
+      await Production.findOneAndUpdate(
+          { juiceType: jtId, companyId: req.user.companyId, date: { $gte: nkd, $lt: new Date(nkd.getTime() + 86400000) } }, 
+          { 
+              $inc: { salesDuringProduction: item.quantity },
+              $setOnInsert: { quantityProduced: 0, date: nkd }
+          }, 
+          { upsert: true }
+      );
+    }
+
+    res.json(updatedOrder);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -110,45 +127,30 @@ const updateOrderPayment = async (req, res) => {
 const deleteOrder = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
-    if (!order) {
-      return res.status(404).json({ message: 'Order not found' });
-    }
-
-    // Rollback stock (add back filled juice)
+    if (!order) return res.status(404).json({ message: 'Order not found' });
     for (const item of order.items) {
-      const product = await Product.findById(item.juiceType);
-      if (product) {
-        product.currentStock += item.quantity;
-        await product.save();
-      }
+      const jtId = item.juiceType?._id || item.juiceType;
+      await Product.findByIdAndUpdate(jtId, { $inc: { currentStock: item.quantity } });
+      const okd = new Date(order.date); okd.setHours(0, 0, 0, 0);
+      await Production.findOneAndUpdate({ juiceType: jtId, companyId: req.user.companyId, date: { $gte: okd, $lt: new Date(okd.getTime() + 86400000) } }, { $inc: { salesDuringProduction: -item.quantity } });
     }
-
-    await order.deleteOne();
-    res.json({ message: 'Order removed and stock restored' });
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
+    await Order.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Deleted' });
+  } catch (error) { res.status(400).json({ message: error.message }); }
 };
 
-const updateOrder = async (req, res) => {
+const updateOrderStatus = async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
-    if (order) {
-      order.customerName = req.body.customerName || order.customerName;
-      order.shopName = req.body.shopName || order.shopName;
-      order.type = req.body.type || order.type;
-      order.orderStatus = req.body.orderStatus || order.orderStatus;
-      order.paymentStatus = req.body.paymentStatus || order.paymentStatus;
-      order.paidAmount = req.body.paidAmount || order.paidAmount;
-
-      const updated = await order.save();
-      res.json(updated);
-    } else {
-      res.status(404).json({ message: 'Order not found' });
-    }
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
+    const order = await Order.findByIdAndUpdate(req.params.id, { $set: { orderStatus: req.body.status } }, { new: true });
+    res.json(order);
+  } catch (error) { res.status(400).json({ message: error.message }); }
 };
 
-module.exports = { createOrder, getOrders, updateOrderStatus, updateOrderPayment, deleteOrder, updateOrder };
+const updateOrderPayment = async (req, res) => {
+  try {
+    const order = await Order.findByIdAndUpdate(req.params.id, { $set: { paidAmount: Number(req.body.paidAmount) } }, { new: true });
+    res.json(order);
+  } catch (error) { res.status(400).json({ message: error.message }); }
+};
+
+module.exports = { createOrder, getOrders, updateOrder, deleteOrder, updateOrderStatus, updateOrderPayment };
