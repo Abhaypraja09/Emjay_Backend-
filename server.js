@@ -48,8 +48,8 @@ app.use('/api/cash', cashRoutes);
 // Serve static files from the 'public' folder
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Fallback for all other routes to serve index.html (Next.js SPA)
-app.get('(.*)', (req, res) => {
+// Catch-all middleware to serve index.html for any non-API routes (Next.js SPA)
+app.use((req, res) => {
   if (req.originalUrl.startsWith('/api')) {
     return res.status(404).json({ message: 'API route not found' });
   }
