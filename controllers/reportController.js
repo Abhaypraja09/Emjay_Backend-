@@ -104,7 +104,11 @@ const getBottleStockReport = async (req, res) => {
     const { bottleType, startDate, endDate } = req.query; // bottleType: 'New' or 'Old'
     
     const query = { companyId: req.user.companyId };
-    if (bottleType) query.bottleType = bottleType;
+    if (bottleType === 'Bottles') {
+        query.bottleType = { $in: ['New', 'Old'] };
+    } else if (bottleType) {
+        query.bottleType = bottleType;
+    }
 
     const records = await BottleInventory.find(query).sort({ date: 1 });
 

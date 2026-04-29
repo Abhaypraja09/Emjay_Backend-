@@ -1,4 +1,5 @@
 const Purchase = require('../models/Purchase');
+const CashLog = require('../models/CashLog');
 
 exports.getPurchases = async (req, res) => {
   try {
@@ -13,6 +14,20 @@ exports.addPurchase = async (req, res) => {
   try {
     const purchase = new Purchase(req.body);
     await purchase.save();
+
+    // Create Cash Log entry
+    if (purchase.status === 'paid' && purchase.cost > 0) {
+        await CashLog.create({
+            companyId: req.user.companyId || 'emjay-master',
+            type: 'OUT',
+            category: 'Purchase',
+            amount: purchase.cost,
+            description: `Purchase of ${purchase.item} from ${purchase.supplier || 'Vendor'}`,
+            paymentMode: 'Cash',
+            date: purchase.date || Date.now()
+        });
+    }
+
     res.status(201).json(purchase);
   } catch (error) {
     res.status(400).json({ message: error.message });

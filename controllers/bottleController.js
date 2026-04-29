@@ -1,21 +1,44 @@
 const BottleInventory = require('../models/BottleInventory');
+const CashLog = require('../models/CashLog');
 
 const addBottlePurchase = async (req, res) => {
   try {
-    const { quantity, costPerUnit, totalCost, supplierName, date, description, bottleType } = req.body;
-    const purchase = await BottleInventory.create({
-      companyId: req.user.companyId,
-      quantity,
-      costPerUnit,
-      totalCost,
-      supplierName,
-      bottleType: bottleType || 'New',
-      date: date || Date.now(),
-      type: 'IN',
-      description
-    });
+    const { items, supplierName, date } = req.body;
+    console.log('Incoming Bottle Purchase:', JSON.stringify(req.body, null, 2));
+    
+    // items is an array: [{ bottleType, quantity, pricePerUnit, totalCost }]
+    const createdItems = [];
+    let grandTotal = 0;
 
-    res.status(201).json(purchase);
+    for (const item of items) {
+      const purchase = await BottleInventory.create({
+        companyId: req.user.companyId,
+        quantity: Number(item.quantity),
+        costPerUnit: Number(item.pricePerUnit),
+        totalCost: Number(item.totalCost),
+        supplierName,
+        bottleType: item.bottleType || 'New',
+        date: date || Date.now(),
+        type: 'IN'
+      });
+      createdItems.push(purchase);
+      grandTotal += Number(item.totalCost);
+    }
+
+    // Record Cash Log as Expense
+    if (grandTotal > 0) {
+        await CashLog.create({
+            companyId: req.user.companyId,
+            type: 'OUT',
+            category: 'Purchase',
+            amount: grandTotal,
+            description: `Bottle/Cap Purchase from ${supplierName}`,
+            paymentMode: 'Cash',
+            date: date || Date.now()
+        });
+    }
+
+    res.status(201).json({ message: 'Purchases recorded successfully', items: createdItems });
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -24,36 +47,41 @@ const addBottlePurchase = async (req, res) => {
 const getBottleStock = async (req, res) => {
   try {
     const { month, year } = req.query;
-    const query = { companyId: req.user.companyId };
+    
+    // 1. Get ALL records to calculate cumulative stock (Available Empty Bottles & Caps)
+    const allRecords = await BottleInventory.find({ companyId: req.user.companyId }).sort({ date: 1 });
 
+    // Cumulative Calculations (Total of all time)
+    const allBottles = allRecords.filter(r => r.bottleType !== 'Caps');
+    const totalBottlesIn = allBottles.filter(r => r.type === 'IN').reduce((acc, r) => acc + r.quantity, 0);
+    const totalBottlesOut = allBottles.filter(r => r.type === 'OUT').reduce((acc, r) => acc + r.quantity, 0);
+    const availableEmptyBottles = totalBottlesIn - totalBottlesOut;
+
+    const allCaps = allRecords.filter(r => r.bottleType === 'Caps');
+    const totalCapsIn = allCaps.filter(r => r.type === 'IN').reduce((acc, r) => acc + r.quantity, 0);
+    const totalCapsOut = allCaps.filter(r => r.type === 'OUT').reduce((acc, r) => acc + r.quantity, 0);
+    const availableCaps = totalCapsIn - totalCapsOut;
+
+    // 2. Filter records for the specific month for history display
+    let history = allRecords;
     if (month && year) {
       const startDate = new Date(parseInt(year), parseInt(month) - 1, 1);
       const endDate = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999);
-      query.date = { $gte: startDate, $lte: endDate };
+      history = allRecords.filter(r => new Date(r.date) >= startDate && new Date(r.date) <= endDate);
     }
 
-    const records = await BottleInventory.find(query).sort({ date: 1 });
-    
-    // Bottles Stats (New + Old)
-    const bottles = records.filter(r => r.bottleType !== 'Caps');
-    const totalPurchased = bottles.filter(r => r.type === 'IN').reduce((acc, r) => acc + r.quantity, 0);
-    const totalUsed = bottles.filter(r => r.type === 'OUT').reduce((acc, r) => acc + r.quantity, 0);
-    const availableEmptyBottles = totalPurchased - totalUsed;
-
-    // Caps Stats
-    const caps = records.filter(r => r.bottleType === 'Caps');
-    const totalCapsPurchased = caps.filter(r => r.type === 'IN').reduce((acc, r) => acc + r.quantity, 0);
-    const totalCapsUsed = caps.filter(r => r.type === 'OUT').reduce((acc, r) => acc + r.quantity, 0);
-    const availableCaps = totalCapsPurchased - totalCapsUsed;
+    // Month-specific stats (optional but helpful for some UI parts)
+    const monthPurchased = history.filter(r => r.type === 'IN' && r.bottleType !== 'Caps').reduce((acc, r) => acc + r.quantity, 0);
+    const monthUsed = history.filter(r => r.type === 'OUT' && r.bottleType !== 'Caps').reduce((acc, r) => acc + r.quantity, 0);
 
     res.json({
-      totalPurchased, // Total Buy Bottles
-      totalUsed,      // Total Production
-      availableEmptyBottles, // Empty Bottles
-      availableCaps,
-      totalCapsPurchased,
-      totalCapsUsed,
-      history: records
+      totalPurchased: monthPurchased, // This month's buy (for the card)
+      totalUsed: monthUsed,           // This month's production
+      availableEmptyBottles,          // CURRENT TOTAL stock
+      availableCaps,                  // CURRENT TOTAL stock
+      totalCapsPurchased: totalCapsIn,
+      totalCapsUsed: totalCapsOut,
+      history: history.reverse()      // Show recent first in history
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

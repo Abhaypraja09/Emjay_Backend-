@@ -16,6 +16,7 @@ const staffRoutes = require('./routes/staffRoutes');
 const partyRoutes = require('./routes/partyRoutes');
 const purchaseRoutes = require('./routes/purchaseRoutes');
 const reportRoutes = require('./routes/reportRoutes');
+const cashRoutes = require('./routes/cashRoutes');
 
 
 dotenv.config();
@@ -41,6 +42,7 @@ app.use('/api/staff', staffRoutes);
 app.use('/api/parties', partyRoutes);
 app.use('/api/purchases', purchaseRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/cash', cashRoutes);
 
 
 // Serve static files from the 'public' folder

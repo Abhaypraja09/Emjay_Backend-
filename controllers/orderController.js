@@ -2,6 +2,7 @@ const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Production = require('../models/Production');
 const mongoose = require('mongoose');
+const CashLog = require('../models/CashLog');
 
 const createOrder = async (req, res) => {
   try {
@@ -28,6 +29,19 @@ const createOrder = async (req, res) => {
           { upsert: true }
       );
     }
+    // Create Cash Log entry if paid
+    if (savedOrder.paidAmount > 0) {
+      await CashLog.create({
+        companyId: req.user.companyId,
+        type: 'IN',
+        category: 'Sale',
+        amount: savedOrder.paidAmount,
+        description: `Sale to ${savedOrder.customerName}`,
+        paymentMode: savedOrder.paymentMode || 'Cash',
+        date: savedOrder.date
+      });
+    }
+
     res.status(201).json(savedOrder);
   } catch (error) { res.status(400).json({ message: error.message }); }
 };
