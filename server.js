@@ -47,15 +47,15 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/cash', cashRoutes);
 
 
-// Serve static files from the 'public' folder
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve static files from the 'dist' folder
+app.use(express.static(path.join(__dirname, 'dist')));
 
 // Catch-all middleware to serve index.html for any non-API routes (Next.js SPA)
 app.use((req, res) => {
   if (req.originalUrl.startsWith('/api')) {
     return res.status(404).json({ message: 'API route not found' });
   }
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 // Error handling middleware
