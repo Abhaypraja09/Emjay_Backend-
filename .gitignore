@@ -8,7 +8,6 @@ yarn-error.log*
 .idea/
 .vscode/
 coverage/
-dist/
 build/
 .cache/
 # package-lock.json
