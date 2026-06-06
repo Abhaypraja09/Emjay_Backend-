@@ -54,4 +54,57 @@ exports.deleteParty = async (req, res) => {
   } catch (error) {
       res.status(500).json({ message: error.message });
   }
-}
+};
+
+exports.updateTransaction = async (req, res) => {
+    try {
+        const oldTx = await Transaction.findById(req.params.txId);
+        if (!oldTx) return res.status(404).json({ message: 'Transaction not found' });
+        
+        // Reverse old balance
+        const revertAmount = oldTx.type === 'credit' ? -oldTx.amount : oldTx.amount;
+        await Party.findByIdAndUpdate(oldTx.partyId, { $inc: { balance: revertAmount } });
+
+        const updatedTx = await Transaction.findByIdAndUpdate(req.params.txId, req.body, { new: true });
+        
+        // Apply new balance
+        const newAmount = updatedTx.type === 'credit' ? updatedTx.amount : -updatedTx.amount;
+        await Party.findByIdAndUpdate(updatedTx.partyId, { $inc: { balance: newAmount } });
+
+        res.json(updatedTx);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+
+exports.deleteTransaction = async (req, res) => {
+    try {
+        const tx = await Transaction.findByIdAndDelete(req.params.txId);
+        if (!tx) return res.status(404).json({ message: 'Transaction not found' });
+        
+        // Reverse balance
+        const revertAmount = tx.type === 'credit' ? -tx.amount : tx.amount;
+        await Party.findByIdAndUpdate(tx.partyId, { $inc: { balance: revertAmount } });
+
+        res.json({ message: 'Transaction deleted' });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Recalculate all party balances from scratch based on their transactions
+exports.recalculateBalances = async (req, res) => {
+    try {
+        const parties = await Party.find();
+        for (const party of parties) {
+            const txns = await Transaction.find({ partyId: party._id });
+            const balance = txns.reduce((acc, tx) => {
+                return acc + (tx.type === 'credit' ? tx.amount : -tx.amount);
+            }, 0);
+            await Party.findByIdAndUpdate(party._id, { balance });
+        }
+        res.json({ message: 'All balances recalculated successfully' });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};

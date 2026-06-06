@@ -111,8 +111,10 @@ const getProductions = async (req, res) => {
     const query = { companyId: req.user.companyId };
 
     if (month && year) {
-      const startDate = new Date(parseInt(year), parseInt(month) - 1, 1);
-      const endDate = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999);
+      const m = parseInt(month);
+      const y = parseInt(year);
+      const startDate = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0, 0));
+      const endDate = new Date(Date.UTC(y, m, 0, 23, 59, 59, 999));
       query.date = { $gte: startDate, $lte: endDate };
     }
 

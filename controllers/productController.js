@@ -62,4 +62,38 @@ const deleteProduct = async (req, res) => {
   }
 };
 
-module.exports = { createProduct, getProducts, updateProduct, deleteProduct };
+const syncStock = async (req, res) => {
+  try {
+    const products = await Product.find({ companyId: req.user.companyId });
+    const Production = require('../models/Production');
+    const Order = require('../models/Order');
+
+    for (const product of products) {
+      // Sum all production for this product
+      const totalProduced = await Production.aggregate([
+        { $match: { juiceType: product._id, companyId: req.user.companyId } },
+        { $group: { _id: null, total: { $sum: "$quantityProduced" } } }
+      ]);
+
+      // Sum all sales for this product
+      const totalSold = await Order.aggregate([
+        { $match: { companyId: req.user.companyId, 'items.juiceType': product._id } },
+        { $unwind: "$items" },
+        { $match: { 'items.juiceType': product._id } },
+        { $group: { _id: null, total: { $sum: "$items.quantity" } } }
+      ]);
+
+      const prodQty = totalProduced[0] ? totalProduced[0].total : 0;
+      const soldQty = totalSold[0] ? totalSold[0].total : 0;
+
+      product.currentStock = prodQty - soldQty;
+      await product.save();
+    }
+
+    res.json({ message: 'Stock synchronized successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports = { createProduct, getProducts, updateProduct, deleteProduct, syncStock };

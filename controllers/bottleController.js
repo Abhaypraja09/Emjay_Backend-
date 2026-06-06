@@ -3,14 +3,22 @@ const CashLog = require('../models/CashLog');
 
 const addBottlePurchase = async (req, res) => {
   try {
-    const { items, supplierName, date } = req.body;
-    console.log('Incoming Bottle Purchase:', JSON.stringify(req.body, null, 2));
+    let { items, supplierName, date, paymentMode } = req.body;
     
-    // items is an array: [{ bottleType, quantity, pricePerUnit, totalCost }]
+    // When using multer/form-data, items might be sent as a JSON string
+    if (typeof items === 'string') {
+        items = JSON.parse(items);
+    }
+
     const createdItems = [];
     let grandTotal = 0;
 
-    for (const item of items) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      // Find the corresponding file for this item (e.g., billImage_0, billImage_1)
+      const file = req.files ? req.files.find(f => f.fieldname === `billImage_${i}`) : null;
+      const billImage = file ? file.path : null;
+
       const purchase = await BottleInventory.create({
         companyId: req.user.companyId,
         quantity: Number(item.quantity),
@@ -19,14 +27,15 @@ const addBottlePurchase = async (req, res) => {
         supplierName,
         bottleType: item.bottleType || 'New',
         date: date || Date.now(),
-        type: 'IN'
+        type: 'IN',
+        billImage: billImage
       });
       createdItems.push(purchase);
       grandTotal += Number(item.totalCost);
     }
 
     // Record Cash Log as Expense
-    if (grandTotal > 0) {
+    if (grandTotal > 0 && paymentMode === 'Cash') {
         await CashLog.create({
             companyId: req.user.companyId,
             type: 'OUT',
@@ -40,7 +49,8 @@ const addBottlePurchase = async (req, res) => {
 
     res.status(201).json({ message: 'Purchases recorded successfully', items: createdItems });
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('Error in addBottlePurchase:', error);
+    res.status(500).json({ message: error.message, stack: error.stack });
   }
 };
 
@@ -65,8 +75,10 @@ const getBottleStock = async (req, res) => {
     // 2. Filter records for the specific month for history display
     let history = allRecords;
     if (month && year) {
-      const startDate = new Date(parseInt(year), parseInt(month) - 1, 1);
-      const endDate = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999);
+      const m = parseInt(month);
+      const y = parseInt(year);
+      const startDate = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0, 0));
+      const endDate = new Date(Date.UTC(y, m, 0, 23, 59, 59, 999));
       history = allRecords.filter(r => new Date(r.date) >= startDate && new Date(r.date) <= endDate);
     }
 

@@ -105,6 +105,20 @@ const getDailyReport = async (req, res) => {
             BottleInventory.find({ date: dateRange, companyId: req.user.companyId })
         ]);
 
+        const productionBreakdown = productions.reduce((acc, p) => {
+            const name = p.juiceType ? p.juiceType.name : 'Unknown';
+            acc[name] = (acc[name] || 0) + p.quantityProduced;
+            return acc;
+        }, {});
+
+        const salesBreakdown = orders.reduce((acc, o) => {
+            o.items.forEach(item => {
+                const name = item.juiceType ? item.juiceType.name : 'Unknown';
+                acc[name] = (acc[name] || 0) + item.quantity;
+            });
+            return acc;
+        }, {});
+
         res.json({
             productions,
             orders,
@@ -112,8 +126,11 @@ const getDailyReport = async (req, res) => {
             summary: {
                 totalProduced: productions.reduce((acc, p) => acc + p.quantityProduced, 0),
                 totalSales: orders.reduce((acc, o) => acc + o.totalAmount, 0),
+                totalProductSoldQty: orders.reduce((acc, o) => acc + o.items.reduce((sum, item) => sum + item.quantity, 0), 0),
                 bottlesIn: bottles.filter(b => b.type === 'IN').reduce((acc, b) => acc + b.quantity, 0),
-                bottlesOut: bottles.filter(b => b.type === 'OUT').reduce((acc, b) => acc + b.quantity, 0)
+                bottlesOut: bottles.filter(b => b.type === 'OUT').reduce((acc, b) => acc + b.quantity, 0),
+                productionBreakdown,
+                salesBreakdown
             }
         });
     } catch (error) {

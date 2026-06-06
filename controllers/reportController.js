@@ -76,8 +76,8 @@ const getProductionStockReport = async (req, res) => {
     if (req.query.month && req.query.year) {
       const m = parseInt(req.query.month);
       const y = parseInt(req.query.year);
-      sDate = new Date(y, m - 1, 1).toISOString().split('T')[0];
-      eDate = new Date(y, m, 0).toISOString().split('T')[0];
+      sDate = new Date(Date.UTC(y, m - 1, 1)).toISOString().split('T')[0];
+      eDate = new Date(Date.UTC(y, m, 0)).toISOString().split('T')[0];
     }
 
     if (sDate) {
@@ -153,8 +153,8 @@ const getBottleStockReport = async (req, res) => {
     if (req.query.month && req.query.year) {
       const m = parseInt(req.query.month);
       const y = parseInt(req.query.year);
-      sDate = new Date(y, m - 1, 1).toISOString().split('T')[0];
-      eDate = new Date(y, m, 0).toISOString().split('T')[0];
+      sDate = new Date(Date.UTC(y, m - 1, 1)).toISOString().split('T')[0];
+      eDate = new Date(Date.UTC(y, m, 0)).toISOString().split('T')[0];
     }
 
     if (sDate) {
@@ -227,8 +227,8 @@ const getGlobalStockReport = async (req, res) => {
 
     let filteredReport = report;
     if (month && year) {
-      const sDate = new Date(year, month - 1, 1).toISOString().split('T')[0];
-      const eDate = new Date(year, month, 0).toISOString().split('T')[0];
+      const sDate = new Date(Date.UTC(year, month - 1, 1)).toISOString().split('T')[0];
+      const eDate = new Date(Date.UTC(year, month, 0)).toISOString().split('T')[0];
       filteredReport = filteredReport.filter(r => r.date >= sDate && r.date <= eDate);
     }
 

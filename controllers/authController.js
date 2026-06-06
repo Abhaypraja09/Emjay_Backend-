@@ -53,12 +53,14 @@ const authUser = async (req, res) => {
 
   // 2. Real Mongoose logic (if DB is connected)
   try {
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ 
+      $or: [{ email }, { username: email }, { mobile: email }] 
+    });
     if (user && (await user.comparePassword(password))) {
       res.json({
         _id: user._id,
         name: user.name,
-        email: user.email,
+        email: user.email || user.username,
         role: user.role,
         token: generateToken(user._id),
       });

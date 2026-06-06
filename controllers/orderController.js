@@ -29,16 +29,18 @@ const createOrder = async (req, res) => {
           { upsert: true }
       );
     }
-    // Create Cash Log entry if paid
-    if (savedOrder.paidAmount > 0) {
+    // Create Cash Log entry if paid in Cash
+    const payMode = savedOrder.paymentMode || 'Cash';
+    if (savedOrder.paidAmount > 0 && payMode === 'Cash') {
       await CashLog.create({
         companyId: req.user.companyId,
         type: 'IN',
         category: 'Sale',
         amount: savedOrder.paidAmount,
         description: `Sale to ${savedOrder.customerName}`,
-        paymentMode: savedOrder.paymentMode || 'Cash',
-        date: savedOrder.date
+        paymentMode: 'Cash',
+        date: savedOrder.date,
+        referenceId: savedOrder._id
       });
     }
 
@@ -132,6 +134,22 @@ const updateOrder = async (req, res) => {
       );
     }
 
+    // Sync CashLog: remove old entry and create a new one if paidAmount > 0 and paymentMode is Cash
+    await CashLog.deleteOne({ companyId: req.user.companyId, category: 'Sale', description: `Sale to ${oldOrder.customerName}` });
+    const newPayMode = req.body.paymentMode || oldOrder.paymentMode || 'Cash';
+    if (Number(paidAmount) > 0 && newPayMode === 'Cash') {
+      await CashLog.create({
+        companyId: req.user.companyId,
+        type: 'IN',
+        category: 'Sale',
+        amount: Number(paidAmount),
+        description: `Sale to ${customerName}`,
+        paymentMode: 'Cash',
+        date: date ? new Date(date) : oldOrder.date,
+        referenceId: id
+      });
+    }
+
     res.json(updatedOrder);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -149,6 +167,8 @@ const deleteOrder = async (req, res) => {
       await Production.findOneAndUpdate({ juiceType: jtId, companyId: req.user.companyId, date: { $gte: okd, $lt: new Date(okd.getTime() + 86400000) } }, { $inc: { salesDuringProduction: -item.quantity } });
     }
     await Order.findByIdAndDelete(req.params.id);
+    // Delete the corresponding CashLog entry
+    await CashLog.deleteOne({ companyId: req.user.companyId, category: 'Sale', description: `Sale to ${order.customerName}` });
     res.json({ message: 'Deleted' });
   } catch (error) { res.status(400).json({ message: error.message }); }
 };
