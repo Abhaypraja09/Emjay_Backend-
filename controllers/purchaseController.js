@@ -5,9 +5,18 @@ exports.getPurchases = async (req, res) => {
   try {
     const { month, year } = req.query;
     let query = { companyId: req.user.companyId };
-    if (month && year) {
-      const startDate = new Date(parseInt(year), parseInt(month) - 1, 1);
-      const endDate = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999);
+    if (month !== undefined && year !== undefined) {
+      const m = parseInt(month);
+      const y = parseInt(year);
+      let startDate, endDate;
+      if (m === 0) {
+        startDate = new Date(y, 3, 1);
+        endDate = new Date(y + 1, 2, 31, 23, 59, 59, 999);
+      } else {
+        const actualYear = m <= 3 ? y + 1 : y;
+        startDate = new Date(actualYear, m - 1, 1);
+        endDate = new Date(actualYear, m, 0, 23, 59, 59, 999);
+      }
       query.date = { $gte: startDate, $lte: endDate };
     }
     const purchases = await Purchase.find(query).sort({ date: -1 });
@@ -30,27 +39,75 @@ exports.addPurchase = async (req, res) => {
         const Party = require('../models/Party');
         const Transaction = require('../models/Transaction');
 
-        // 1. Record the purchase as a DEBIT (they provided goods/we owe them)
-        await new Transaction({
-            partyId: req.body.partyId,
-            purchaseId: purchase._id,
-            amount: purchase.cost,
-            type: 'debit',
-            description: `Purchase: ${purchase.item}`,
-            date: purchase.date || Date.now()
-        }).save();
+        // 1. Record the purchase as DEBITs per item (they provided goods/we owe them)
+        const paymentLabel = (purchase.status === 'Cash' || purchase.status === 'Paid') ? ' [Paid]' :
+                             (purchase.status === 'Online/UPI') ? ' [Paid Online]' :
+                             (purchase.status === 'Split') ? ' [Split Paid]' : '';
+
+        if (purchase.items && purchase.items.length > 0) {
+            for (const item of purchase.items) {
+                await new Transaction({
+                    partyId: req.body.partyId,
+                    purchaseId: purchase._id,
+                    amount: item.amount || (item.quantity * item.rate),
+                    type: 'debit',
+                    description: `Purchase: ${item.name} (${item.quantity} ${item.unit || 'Units'})${paymentLabel}`,
+                    date: purchase.date || Date.now()
+                }).save();
+            }
+        } else {
+            await new Transaction({
+                partyId: req.body.partyId,
+                purchaseId: purchase._id,
+                amount: purchase.totalCost || req.body.cost,
+                type: 'debit',
+                description: `Purchase: Items${paymentLabel}`,
+                date: purchase.date || Date.now()
+            }).save();
+        }
 
         // 2. If it was a CASH or PAID purchase, record an immediate CREDIT (we paid them)
         // This keeps the balance 0 but shows the full history in the ledger
+        const itemNames = purchase.items ? purchase.items.map(i => i.name).join(', ') : 'Items';
         if (purchase.status === 'Cash' || purchase.status === 'Paid') {
             await new Transaction({
                 partyId: req.body.partyId,
                 purchaseId: purchase._id,
-                amount: purchase.cost,
+                amount: purchase.totalCost || req.body.cost,
                 type: 'credit',
-                description: `Payment for Purchase: ${purchase.item}`,
+                description: `Payment for Purchase: ${itemNames}`,
                 date: purchase.date || Date.now()
             }).save();
+        } else if (purchase.status === 'Online/UPI') {
+            await new Transaction({
+                partyId: req.body.partyId,
+                purchaseId: purchase._id,
+                amount: purchase.totalCost || req.body.cost,
+                type: 'credit',
+                description: `Online Payment for Purchase: ${itemNames}`,
+                date: purchase.date || Date.now()
+            }).save();
+        } else if (purchase.status === 'Split') {
+            if (purchase.paidCash > 0) {
+                await new Transaction({
+                    partyId: req.body.partyId,
+                    purchaseId: purchase._id,
+                    amount: purchase.paidCash,
+                    type: 'credit',
+                    description: `Cash Payment for Purchase: ${itemNames}`,
+                    date: purchase.date || Date.now()
+                }).save();
+            }
+            if (purchase.paidOnline > 0) {
+                await new Transaction({
+                    partyId: req.body.partyId,
+                    purchaseId: purchase._id,
+                    amount: purchase.paidOnline,
+                    type: 'credit',
+                    description: `Online Payment for Purchase: ${itemNames}`,
+                    date: purchase.date || Date.now()
+                }).save();
+            }
         }
 
         // 3. Recalculate and update the party's balance from scratch to ensure absolute accuracy
@@ -59,14 +116,22 @@ exports.addPurchase = async (req, res) => {
         await Party.findByIdAndUpdate(req.body.partyId, { balance: newBalance });
     }
 
-    if (purchase.status === 'Cash') {
+    let cashAmount = 0;
+    if (purchase.status === 'Cash' || purchase.status === 'Paid') {
+        cashAmount = purchase.totalCost || req.body.cost;
+    } else if (purchase.status === 'Split') {
+        cashAmount = purchase.paidCash;
+    }
+
+    if (cashAmount > 0) {
+        const itemNames = purchase.items ? purchase.items.map(i => i.name).join(', ') : 'Items';
         await new CashLog({
             companyId: purchase.companyId,
             type: 'OUT',
-            amount: purchase.cost,
+            amount: cashAmount,
             category: 'Purchase',
             paymentMode: 'Cash',
-            description: `Purchase: ${purchase.item}`,
+            description: `Purchase: ${itemNames}`,
             date: purchase.date || Date.now(),
             referenceId: purchase._id
         }).save();
@@ -99,26 +164,74 @@ exports.updatePurchase = async (req, res) => {
 
         // 2. Re-create transactions if a party is selected
         if (purchase.partyId) {
-            // Debit (Purchase)
-            await new Transaction({
-                partyId: purchase.partyId,
-                purchaseId: purchase._id,
-                amount: purchase.cost,
-                type: 'debit',
-                description: `Purchase: ${purchase.item}`,
-                date: purchase.date || Date.now()
-            }).save();
+            const itemNames = purchase.items ? purchase.items.map(i => i.name).join(', ') : 'Items';
+            const paymentLabel = (purchase.status === 'Cash' || purchase.status === 'Paid') ? ' [Paid]' :
+                                 (purchase.status === 'Online/UPI') ? ' [Paid Online]' :
+                                 (purchase.status === 'Split') ? ' [Split Paid]' : '';
+
+            // Debit (Purchase) per item
+            if (purchase.items && purchase.items.length > 0) {
+                for (const item of purchase.items) {
+                    await new Transaction({
+                        partyId: purchase.partyId,
+                        purchaseId: purchase._id,
+                        amount: item.amount || (item.quantity * item.rate),
+                        type: 'debit',
+                        description: `Purchase: ${item.name} (${item.quantity} ${item.unit || 'Units'})${paymentLabel}`,
+                        date: purchase.date || Date.now()
+                    }).save();
+                }
+            } else {
+                await new Transaction({
+                    partyId: purchase.partyId,
+                    purchaseId: purchase._id,
+                    amount: purchase.totalCost,
+                    type: 'debit',
+                    description: `Purchase: Items${paymentLabel}`,
+                    date: purchase.date || Date.now()
+                }).save();
+            }
 
             // Credit (Payment) if paid
             if (purchase.status === 'Cash' || purchase.status === 'Paid') {
                 await new Transaction({
                     partyId: purchase.partyId,
                     purchaseId: purchase._id,
-                    amount: purchase.cost,
+                    amount: purchase.totalCost || purchase.cost,
                     type: 'credit',
-                    description: `Payment for Purchase: ${purchase.item}`,
+                    description: `Payment for Purchase: ${itemNames}`,
                     date: purchase.date || Date.now()
                 }).save();
+            } else if (purchase.status === 'Online/UPI') {
+                await new Transaction({
+                    partyId: purchase.partyId,
+                    purchaseId: purchase._id,
+                    amount: purchase.totalCost || purchase.cost,
+                    type: 'credit',
+                    description: `Online Payment for Purchase: ${itemNames}`,
+                    date: purchase.date || Date.now()
+                }).save();
+            } else if (purchase.status === 'Split') {
+                if (purchase.paidCash > 0) {
+                    await new Transaction({
+                        partyId: purchase.partyId,
+                        purchaseId: purchase._id,
+                        amount: purchase.paidCash,
+                        type: 'credit',
+                        description: `Cash Payment for Purchase: ${itemNames}`,
+                        date: purchase.date || Date.now()
+                    }).save();
+                }
+                if (purchase.paidOnline > 0) {
+                    await new Transaction({
+                        partyId: purchase.partyId,
+                        purchaseId: purchase._id,
+                        amount: purchase.paidOnline,
+                        type: 'credit',
+                        description: `Online Payment for Purchase: ${itemNames}`,
+                        date: purchase.date || Date.now()
+                    }).save();
+                }
             }
 
             // Recalculate balance for the new party
@@ -136,15 +249,24 @@ exports.updatePurchase = async (req, res) => {
     }
 
     // Sync CashLog
-    await CashLog.deleteMany({ referenceId: purchase._id });
-    if (purchase.status === 'Cash') {
+    await CashLog.deleteMany({ referenceId: oldPurchase._id });
+
+    let updatedCashAmount = 0;
+    if (purchase.status === 'Cash' || purchase.status === 'Paid') {
+        updatedCashAmount = purchase.totalCost || req.body.cost;
+    } else if (purchase.status === 'Split') {
+        updatedCashAmount = purchase.paidCash;
+    }
+
+    if (updatedCashAmount > 0) {
+        const itemNames = purchase.items ? purchase.items.map(i => i.name).join(', ') : 'Items';
         await new CashLog({
             companyId: purchase.companyId,
             type: 'OUT',
-            amount: purchase.cost,
+            amount: updatedCashAmount,
             category: 'Purchase',
             paymentMode: 'Cash',
-            description: `Purchase: ${purchase.item}`,
+            description: `Purchase: ${itemNames}`,
             date: purchase.date || Date.now(),
             referenceId: purchase._id
         }).save();

@@ -2,9 +2,10 @@ const mongoose = require('mongoose');
 
 const orderSchema = new mongoose.Schema({
   companyId: { type: String, required: true, default: 'emjay-master' },
+  partyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Party' },
   customerName: { type: String, required: true },
   shopName: { type: String },
-  type: { type: String, enum: ['B2B', 'B2C'], default: 'B2C' },
+  type: { type: String, enum: ['B2B', 'B2C', 'Customer', 'Branch Transfer', 'Distributor'], default: 'B2C' },
   items: [
     {
       juiceType: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
@@ -18,7 +19,7 @@ const orderSchema = new mongoose.Schema({
   grandTotal: { type: Number },
   paidAmount: { type: Number, default: 0 },
   dueAmount: { type: Number },
-  paymentMode: { type: String, enum: ['Cash', 'UPI', 'Bank Transfer', 'Credit'], default: 'Cash' },
+  paymentMode: { type: String, enum: ['Cash', 'UPI', 'Bank Transfer', 'Credit', 'Due'], default: 'Cash' },
   paymentStatus: { type: String, enum: ['paid', 'unpaid', 'partial'], default: 'unpaid' },
   orderStatus: { type: String, enum: ['pending', 'delivered', 'returned'], default: 'pending' },
   date: { type: Date, default: Date.now },

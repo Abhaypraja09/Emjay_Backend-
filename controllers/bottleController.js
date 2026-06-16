@@ -74,11 +74,18 @@ const getBottleStock = async (req, res) => {
 
     // 2. Filter records for the specific month for history display
     let history = allRecords;
-    if (month && year) {
+    if (month !== undefined && year !== undefined) {
       const m = parseInt(month);
       const y = parseInt(year);
-      const startDate = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0, 0));
-      const endDate = new Date(Date.UTC(y, m, 0, 23, 59, 59, 999));
+      let startDate, endDate;
+      if (m === 0) {
+        startDate = new Date(Date.UTC(y, 3, 1, 0, 0, 0, 0));
+        endDate = new Date(Date.UTC(y + 1, 2, 31, 23, 59, 59, 999));
+      } else {
+        const actualYear = m <= 3 ? y + 1 : y;
+        startDate = new Date(Date.UTC(actualYear, m - 1, 1, 0, 0, 0, 0));
+        endDate = new Date(Date.UTC(actualYear, m, 0, 23, 59, 59, 999));
+      }
       history = allRecords.filter(r => new Date(r.date) >= startDate && new Date(r.date) <= endDate);
     }
 

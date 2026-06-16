@@ -1,10 +1,11 @@
 const express = require('express');
-const { getParties, addParty, getTransactions, addTransaction, deleteParty, updateTransaction, deleteTransaction, recalculateBalances } = require('../controllers/partyController');
+const { getParties, addParty, updateParty, getTransactions, addTransaction, deleteParty, updateTransaction, deleteTransaction, recalculateBalances } = require('../controllers/partyController');
 const { protect } = require('../middleware/auth');
 const router = express.Router();
 
 router.get('/', protect, getParties);
 router.post('/', protect, addParty);
+router.put('/:id', protect, updateParty);
 router.delete('/:id', protect, deleteParty);
 router.get('/recalculate', protect, recalculateBalances);
 router.get('/:partyId/transactions', protect, getTransactions);

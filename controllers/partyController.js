@@ -20,9 +20,21 @@ exports.addParty = async (req, res) => {
   }
 };
 
+exports.updateParty = async (req, res) => {
+  try {
+    const party = await Party.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!party) return res.status(404).json({ message: 'Party not found' });
+    res.json(party);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 exports.getTransactions = async (req, res) => {
   try {
-    const transactions = await Transaction.find({ partyId: req.params.partyId }).sort({ date: -1 });
+    const transactions = await Transaction.find({ partyId: req.params.partyId })
+      .populate('purchaseId', 'billImage')
+      .sort({ date: -1 });
     res.json(transactions);
   } catch (error) {
     res.status(500).json({ message: error.message });

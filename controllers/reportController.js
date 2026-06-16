@@ -73,11 +73,17 @@ const getProductionStockReport = async (req, res) => {
     let sDate = startDate;
     let eDate = endDate;
 
-    if (req.query.month && req.query.year) {
+    if (req.query.month !== undefined && req.query.year !== undefined) {
       const m = parseInt(req.query.month);
       const y = parseInt(req.query.year);
-      sDate = new Date(Date.UTC(y, m - 1, 1)).toISOString().split('T')[0];
-      eDate = new Date(Date.UTC(y, m, 0)).toISOString().split('T')[0];
+      if (m === 0) {
+        sDate = new Date(Date.UTC(y, 3, 1)).toISOString().split('T')[0];
+        eDate = new Date(Date.UTC(y + 1, 2, 31)).toISOString().split('T')[0];
+      } else {
+        const actualYear = m <= 3 ? y + 1 : y;
+        sDate = new Date(Date.UTC(actualYear, m - 1, 1)).toISOString().split('T')[0];
+        eDate = new Date(Date.UTC(actualYear, m, 0)).toISOString().split('T')[0];
+      }
     }
 
     if (sDate) {
@@ -150,11 +156,17 @@ const getBottleStockReport = async (req, res) => {
     let sDate = startDate;
     let eDate = endDate;
 
-    if (req.query.month && req.query.year) {
+    if (req.query.month !== undefined && req.query.year !== undefined) {
       const m = parseInt(req.query.month);
       const y = parseInt(req.query.year);
-      sDate = new Date(Date.UTC(y, m - 1, 1)).toISOString().split('T')[0];
-      eDate = new Date(Date.UTC(y, m, 0)).toISOString().split('T')[0];
+      if (m === 0) {
+        sDate = new Date(Date.UTC(y, 3, 1)).toISOString().split('T')[0];
+        eDate = new Date(Date.UTC(y + 1, 2, 31)).toISOString().split('T')[0];
+      } else {
+        const actualYear = m <= 3 ? y + 1 : y;
+        sDate = new Date(Date.UTC(actualYear, m - 1, 1)).toISOString().split('T')[0];
+        eDate = new Date(Date.UTC(actualYear, m, 0)).toISOString().split('T')[0];
+      }
     }
 
     if (sDate) {

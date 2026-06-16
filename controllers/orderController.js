@@ -3,6 +3,10 @@ const Product = require('../models/Product');
 const Production = require('../models/Production');
 const mongoose = require('mongoose');
 const CashLog = require('../models/CashLog');
+const Party = require('../models/Party');
+const Transaction = require('../models/Transaction');
+const BranchStock = require('../models/BranchStock');
+const BranchTransfer = require('../models/BranchTransfer');
 
 const createOrder = async (req, res) => {
   try {
@@ -28,20 +32,59 @@ const createOrder = async (req, res) => {
           }, 
           { upsert: true }
       );
+
+      // Handle Branch Transfer / Distributor Stock IN
+      if (['Branch Transfer', 'Distributor'].includes(savedOrder.type) && savedOrder.partyId) {
+        await BranchStock.findOneAndUpdate(
+          { companyId: req.user.companyId, partyId: savedOrder.partyId, juiceType: jtId },
+          { $inc: { quantity: item.quantity } },
+          { upsert: true, new: true }
+        );
+
+        await BranchTransfer.create({
+          companyId: req.user.companyId,
+          partyId: savedOrder.partyId,
+          juiceType: jtId,
+          type: 'IN',
+          quantity: item.quantity,
+          rate: item.price,
+          date: savedOrder.date
+        });
+      }
     }
-    // Create Cash Log entry if paid in Cash
+
+    // Update Party Ledger if dueAmount exists
+    if (savedOrder.partyId && savedOrder.dueAmount > 0) {
+      const transaction = new Transaction({
+        partyId: savedOrder.partyId,
+        amount: savedOrder.dueAmount,
+        type: 'credit', // Credit increases their outstanding balance
+        description: `Sale Bill ${savedOrder.type} - Due`,
+        date: savedOrder.date
+      });
+      await transaction.save();
+      await Party.findByIdAndUpdate(savedOrder.partyId, { $inc: { balance: savedOrder.dueAmount } });
+    }
+
+    // Create Cash Log or Bank Log entry if paid amount is > 0 and not Due
     const payMode = savedOrder.paymentMode || 'Cash';
-    if (savedOrder.paidAmount > 0 && payMode === 'Cash') {
-      await CashLog.create({
+    if (savedOrder.paidAmount > 0 && payMode !== 'Credit' && payMode !== 'Due') {
+      const BankLog = require('../models/BankLog');
+      const logData = {
         companyId: req.user.companyId,
         type: 'IN',
         category: 'Sale',
         amount: savedOrder.paidAmount,
         description: `Sale to ${savedOrder.customerName}`,
-        paymentMode: 'Cash',
+        paymentMode: payMode,
         date: savedOrder.date,
         referenceId: savedOrder._id
-      });
+      };
+      if (payMode === 'Cash') {
+        await CashLog.create(logData);
+      } else {
+        await BankLog.create(logData);
+      }
     }
 
     res.status(201).json(savedOrder);
@@ -53,9 +96,18 @@ const getOrders = async (req, res) => {
     const { month, year } = req.query;
     const query = { companyId: req.user.companyId };
     
-    if (month && year) {
-      const startDate = new Date(parseInt(year), parseInt(month) - 1, 1);
-      const endDate = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999);
+    if (month !== undefined && year !== undefined) {
+      const m = parseInt(month);
+      const y = parseInt(year);
+      let startDate, endDate;
+      if (m === 0) {
+        startDate = new Date(y, 3, 1);
+        endDate = new Date(y + 1, 2, 31, 23, 59, 59, 999);
+      } else {
+        const actualYear = m <= 3 ? y + 1 : y;
+        startDate = new Date(actualYear, m - 1, 1);
+        endDate = new Date(actualYear, m, 0, 23, 59, 59, 999);
+      }
       query.date = { $gte: startDate, $lte: endDate };
     }
 
@@ -92,6 +144,34 @@ const updateOrder = async (req, res) => {
       await Product.findByIdAndUpdate(jtId, { $inc: { currentStock: item.quantity } });
       const okd = new Date(oldOrder.date); okd.setHours(0, 0, 0, 0);
       await Production.findOneAndUpdate({ juiceType: jtId, companyId: req.user.companyId, date: { $gte: okd, $lt: new Date(okd.getTime() + 86400000) } }, { $inc: { salesDuringProduction: -item.quantity } });
+
+      // Rollback Branch Stock
+      if (['Branch Transfer', 'Distributor'].includes(oldOrder.type) && oldOrder.partyId) {
+        await BranchStock.findOneAndUpdate(
+          { companyId: req.user.companyId, partyId: oldOrder.partyId, juiceType: jtId },
+          { $inc: { quantity: -item.quantity } }
+        );
+        await BranchTransfer.deleteOne({
+          companyId: req.user.companyId,
+          partyId: oldOrder.partyId,
+          juiceType: jtId,
+          type: 'IN',
+          quantity: item.quantity,
+          date: oldOrder.date
+        });
+      }
+    }
+
+    // Rollback Party Ledger
+    if (oldOrder.partyId && oldOrder.dueAmount > 0) {
+      await Party.findByIdAndUpdate(oldOrder.partyId, { $inc: { balance: -oldOrder.dueAmount } });
+      await Transaction.deleteOne({
+        partyId: oldOrder.partyId,
+        amount: oldOrder.dueAmount,
+        type: 'credit',
+        description: `Sale Bill ${oldOrder.type} - Due`,
+        date: oldOrder.date
+      });
     }
 
     // DIRECT MONGODB UPDATE (Bypassing Mongoose complexity)
@@ -111,7 +191,12 @@ const updateOrder = async (req, res) => {
             items: rawItems,
             totalAmount: Number(totalAmount),
             paidAmount: Number(paidAmount || 0),
+            paymentMode: req.body.paymentMode || oldOrder.paymentMode || 'Cash',
+            gst: Number(req.body.gst || 0),
+            discount: Number(req.body.discount || 0),
             date: date ? new Date(date) : oldOrder.date,
+            partyId: req.body.partyId ? new mongoose.Types.ObjectId(req.body.partyId) : null,
+            dueAmount: Number(req.body.dueAmount || 0),
             updatedAt: new Date()
           }
         }
@@ -132,22 +217,62 @@ const updateOrder = async (req, res) => {
           }, 
           { upsert: true }
       );
+
+      // Apply Branch Stock
+      if (['Branch Transfer', 'Distributor'].includes(updatedOrder.type) && updatedOrder.partyId) {
+        await BranchStock.findOneAndUpdate(
+          { companyId: req.user.companyId, partyId: updatedOrder.partyId, juiceType: jtId },
+          { $inc: { quantity: item.quantity } },
+          { upsert: true, new: true }
+        );
+        await BranchTransfer.create({
+          companyId: req.user.companyId,
+          partyId: updatedOrder.partyId,
+          juiceType: jtId,
+          type: 'IN',
+          quantity: item.quantity,
+          rate: item.price,
+          date: updatedOrder.date
+        });
+      }
     }
 
-    // Sync CashLog: remove old entry and create a new one if paidAmount > 0 and paymentMode is Cash
+    // Apply Party Ledger
+    if (updatedOrder.partyId && updatedOrder.dueAmount > 0) {
+      const transaction = new Transaction({
+        partyId: updatedOrder.partyId,
+        amount: updatedOrder.dueAmount,
+        type: 'credit',
+        description: `Sale Bill ${updatedOrder.type} - Due`,
+        date: updatedOrder.date
+      });
+      await transaction.save();
+      await Party.findByIdAndUpdate(updatedOrder.partyId, { $inc: { balance: updatedOrder.dueAmount } });
+    }
+
+    // Sync CashLog / BankLog: remove old entry and create a new one if paidAmount > 0 and paymentMode is not Due
+    const BankLog = require('../models/BankLog');
     await CashLog.deleteOne({ companyId: req.user.companyId, category: 'Sale', description: `Sale to ${oldOrder.customerName}` });
+    await BankLog.deleteOne({ companyId: req.user.companyId, category: 'Sale', description: `Sale to ${oldOrder.customerName}` });
+    
     const newPayMode = req.body.paymentMode || oldOrder.paymentMode || 'Cash';
-    if (Number(paidAmount) > 0 && newPayMode === 'Cash') {
-      await CashLog.create({
+    if (Number(paidAmount) > 0 && newPayMode !== 'Credit' && newPayMode !== 'Due') {
+      const logData = {
         companyId: req.user.companyId,
         type: 'IN',
         category: 'Sale',
         amount: Number(paidAmount),
         description: `Sale to ${customerName}`,
-        paymentMode: 'Cash',
+        paymentMode: newPayMode,
         date: date ? new Date(date) : oldOrder.date,
         referenceId: id
-      });
+      };
+      
+      if (newPayMode === 'Cash') {
+        await CashLog.create(logData);
+      } else {
+        await BankLog.create(logData);
+      }
     }
 
     res.json(updatedOrder);
@@ -165,12 +290,47 @@ const deleteOrder = async (req, res) => {
       await Product.findByIdAndUpdate(jtId, { $inc: { currentStock: item.quantity } });
       const okd = new Date(order.date); okd.setHours(0, 0, 0, 0);
       await Production.findOneAndUpdate({ juiceType: jtId, companyId: req.user.companyId, date: { $gte: okd, $lt: new Date(okd.getTime() + 86400000) } }, { $inc: { salesDuringProduction: -item.quantity } });
+
+      // Reverse Branch Stock if it was a transfer
+      if (['Branch Transfer', 'Distributor'].includes(order.type) && order.partyId) {
+        await BranchStock.findOneAndUpdate(
+          { companyId: req.user.companyId, partyId: order.partyId, juiceType: jtId },
+          { $inc: { quantity: -item.quantity } }
+        );
+        // Delete the BranchTransfer log for this specific date/type/quantity (approximation or we could just delete all INs matching this date/party/product)
+        await BranchTransfer.deleteOne({
+          companyId: req.user.companyId,
+          partyId: order.partyId,
+          juiceType: jtId,
+          type: 'IN',
+          quantity: item.quantity,
+          date: order.date
+        });
+      }
     }
+
+    // Reverse Party Ledger if it was Due
+    if (order.partyId && order.dueAmount > 0) {
+      await Party.findByIdAndUpdate(order.partyId, { $inc: { balance: -order.dueAmount } });
+      await Transaction.deleteOne({
+        partyId: order.partyId,
+        amount: order.dueAmount,
+        type: 'credit',
+        description: `Sale Bill ${order.type} - Due`,
+        date: order.date
+      });
+    }
+
     await Order.findByIdAndDelete(req.params.id);
-    // Delete the corresponding CashLog entry
-    await CashLog.deleteOne({ companyId: req.user.companyId, category: 'Sale', description: `Sale to ${order.customerName}` });
-    res.json({ message: 'Deleted' });
-  } catch (error) { res.status(400).json({ message: error.message }); }
+    // Delete from CashLog and BankLog
+    await CashLog.deleteOne({ companyId: req.user.companyId, referenceId: req.params.id });
+    const BankLog = require('../models/BankLog');
+    await BankLog.deleteOne({ companyId: req.user.companyId, referenceId: req.params.id });
+
+    res.json({ message: 'Order removed' });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
 };
 
 const updateOrderStatus = async (req, res) => {

@@ -5,6 +5,8 @@ const partySchema = new mongoose.Schema({
   type: { type: String, enum: ['customer', 'supplier'], required: true },
   phone: { type: String },
   address: { type: String },
+  gstRegistered: { type: Boolean, default: false },
+  gstNumber: { type: String },
   balance: { type: Number, default: 0 }, // Positive = They owe us, Negative = We owe them
 }, { timestamps: true });
 

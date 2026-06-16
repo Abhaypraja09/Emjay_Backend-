@@ -6,11 +6,39 @@ const Production = require('../models/Production');
 const getDashboardStats = async (req, res) => {
   try {
     const companyId = req.user.companyId;
+    const { month, fy } = req.query;
+
+    let dateFilter = {};
+    if (fy && fy.includes('-')) {
+      const [startYearStr, endYearStr] = fy.split('-');
+      const startYear = parseInt(startYearStr);
+      const endYear = parseInt(endYearStr);
+
+      let startDate, endDate;
+
+      if (month && month !== 'Full Year') {
+        const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        const monthIndex = months.indexOf(month);
+        
+        if (monthIndex !== -1) {
+          const targetYear = monthIndex >= 3 ? startYear : endYear; // Apr(3)-Dec(11) in startYear, Jan(0)-Mar(2) in endYear
+          startDate = new Date(targetYear, monthIndex, 1, 0, 0, 0, 0);
+          endDate = new Date(targetYear, monthIndex + 1, 0, 23, 59, 59, 999);
+        }
+      } else {
+        startDate = new Date(startYear, 3, 1, 0, 0, 0, 0); // April 1st
+        endDate = new Date(endYear, 2, 31, 23, 59, 59, 999); // March 31st
+      }
+
+      if (startDate && endDate) {
+        dateFilter = { createdAt: { $gte: startDate, $lte: endDate } };
+      }
+    }
 
     const stats = await Promise.all([
       // Bottle Stats
       BottleInventory.aggregate([
-        { $match: { companyId } },
+        { $match: { companyId, ...dateFilter } },
         {
           $group: {
             _id: null,
@@ -22,7 +50,7 @@ const getDashboardStats = async (req, res) => {
       ]),
       // Sales Stats
       Order.aggregate([
-        { $match: { companyId } },
+        { $match: { companyId, ...dateFilter } },
         {
           $group: {
             _id: null,

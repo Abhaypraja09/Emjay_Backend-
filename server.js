@@ -18,7 +18,8 @@ const partyRoutes = require('./routes/partyRoutes');
 const purchaseRoutes = require('./routes/purchaseRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const cashRoutes = require('./routes/cashRoutes');
-
+const bankBookRoutes = require('./routes/bankBookRoutes');
+const branchRoutes = require('./routes/branchRoutes');
 
 dotenv.config();
 
@@ -45,7 +46,8 @@ app.use('/api/parties', partyRoutes);
 app.use('/api/purchases', purchaseRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/cash', cashRoutes);
-
+app.use('/api/bank-book', bankBookRoutes);
+app.use('/api/branch-stock', branchRoutes);
 
 // Serve static files from the 'dist' folder
 app.use(express.static(path.join(__dirname, 'dist')));
