@@ -39,30 +39,32 @@ exports.addPurchase = async (req, res) => {
         const Party = require('../models/Party');
         const Transaction = require('../models/Transaction');
 
-        // 1. Record the purchase as DEBITs per item (they provided goods/we owe them)
+        // Fetch Party to get vendor name
+        const party = await Party.findById(req.body.partyId);
+        const vendorName = party ? party.name : 'Vendor';
+
         const paymentLabel = (purchase.status === 'Cash' || purchase.status === 'Paid') ? ' [Paid]' :
                              (purchase.status === 'Online/UPI') ? ' [Paid Online]' :
                              (purchase.status === 'Split') ? ' [Split Paid]' : '';
-        const itemNames = purchase.items && purchase.items.length > 0 ? purchase.items.map(i => i.name).join(', ') : 'Items';
+                             
         await new Transaction({
             partyId: req.body.partyId,
             purchaseId: purchase._id,
             amount: purchase.totalCost || req.body.cost,
             type: 'debit',
-            description: `Purchase: ${itemNames}${paymentLabel}`,
+            description: `Purchase - ${vendorName}${paymentLabel}`,
             date: purchase.date || Date.now()
         }).save();
 
         // 2. If it was a CASH or PAID purchase, record an immediate CREDIT (we paid them)
         // This keeps the balance 0 but shows the full history in the ledger
-        const itemNames = purchase.items ? purchase.items.map(i => i.name).join(', ') : 'Items';
         if (purchase.status === 'Cash' || purchase.status === 'Paid') {
             await new Transaction({
                 partyId: req.body.partyId,
                 purchaseId: purchase._id,
                 amount: purchase.totalCost || req.body.cost,
                 type: 'credit',
-                description: `Payment for Purchase: ${itemNames}`,
+                description: `Payment to ${vendorName}`,
                 date: purchase.date || Date.now()
             }).save();
         } else if (purchase.status === 'Online/UPI') {
@@ -71,7 +73,7 @@ exports.addPurchase = async (req, res) => {
                 purchaseId: purchase._id,
                 amount: purchase.totalCost || req.body.cost,
                 type: 'credit',
-                description: `Online Payment for Purchase: ${itemNames}`,
+                description: `Online Payment to ${vendorName}`,
                 date: purchase.date || Date.now()
             }).save();
         } else if (purchase.status === 'Split') {
@@ -81,7 +83,7 @@ exports.addPurchase = async (req, res) => {
                     purchaseId: purchase._id,
                     amount: purchase.paidCash,
                     type: 'credit',
-                    description: `Cash Payment for Purchase: ${itemNames}`,
+                    description: `Cash Payment to ${vendorName}`,
                     date: purchase.date || Date.now()
                 }).save();
             }
@@ -91,7 +93,7 @@ exports.addPurchase = async (req, res) => {
                     purchaseId: purchase._id,
                     amount: purchase.paidOnline,
                     type: 'credit',
-                    description: `Online Payment for Purchase: ${itemNames}`,
+                    description: `Online Payment to ${vendorName}`,
                     date: purchase.date || Date.now()
                 }).save();
             }
@@ -151,19 +153,20 @@ exports.updatePurchase = async (req, res) => {
 
         // 2. Re-create transactions if a party is selected
         if (purchase.partyId) {
-            const itemNames = purchase.items ? purchase.items.map(i => i.name).join(', ') : 'Items';
+            const party = await Party.findById(purchase.partyId);
+            const vendorName = party ? party.name : 'Vendor';
+
             const paymentLabel = (purchase.status === 'Cash' || purchase.status === 'Paid') ? ' [Paid]' :
                                  (purchase.status === 'Online/UPI') ? ' [Paid Online]' :
                                  (purchase.status === 'Split') ? ' [Split Paid]' : '';
 
             // Debit (Purchase) combined for all items
-            const itemNames = purchase.items && purchase.items.length > 0 ? purchase.items.map(i => i.name).join(', ') : 'Items';
             await new Transaction({
                 partyId: purchase.partyId,
                 purchaseId: purchase._id,
                 amount: purchase.totalCost || purchase.cost,
                 type: 'debit',
-                description: `Purchase: ${itemNames}${paymentLabel}`,
+                description: `Purchase - ${vendorName}${paymentLabel}`,
                 date: purchase.date || Date.now()
             }).save();
 
@@ -174,7 +177,7 @@ exports.updatePurchase = async (req, res) => {
                     purchaseId: purchase._id,
                     amount: purchase.totalCost || purchase.cost,
                     type: 'credit',
-                    description: `Payment for Purchase: ${itemNames}`,
+                    description: `Payment to ${vendorName}`,
                     date: purchase.date || Date.now()
                 }).save();
             } else if (purchase.status === 'Online/UPI') {
@@ -183,7 +186,7 @@ exports.updatePurchase = async (req, res) => {
                     purchaseId: purchase._id,
                     amount: purchase.totalCost || purchase.cost,
                     type: 'credit',
-                    description: `Online Payment for Purchase: ${itemNames}`,
+                    description: `Online Payment to ${vendorName}`,
                     date: purchase.date || Date.now()
                 }).save();
             } else if (purchase.status === 'Split') {
@@ -193,7 +196,7 @@ exports.updatePurchase = async (req, res) => {
                         purchaseId: purchase._id,
                         amount: purchase.paidCash,
                         type: 'credit',
-                        description: `Cash Payment for Purchase: ${itemNames}`,
+                        description: `Cash Payment to ${vendorName}`,
                         date: purchase.date || Date.now()
                     }).save();
                 }
@@ -203,7 +206,7 @@ exports.updatePurchase = async (req, res) => {
                         purchaseId: purchase._id,
                         amount: purchase.paidOnline,
                         type: 'credit',
-                        description: `Online Payment for Purchase: ${itemNames}`,
+                        description: `Online Payment to ${vendorName}`,
                         date: purchase.date || Date.now()
                     }).save();
                 }
