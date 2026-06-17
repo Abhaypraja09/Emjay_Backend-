@@ -12,9 +12,16 @@ const createOrder = async (req, res) => {
   try {
     for (const item of req.body.items) {
       const jtId = item.juiceType?._id || item.juiceType;
-      const product = await Product.findOne({ _id: jtId, companyId: req.user.companyId });
-      if (!product || product.currentStock < item.quantity) {
-        return res.status(400).json({ message: `Insufficient stock for ${product?.name || 'Product'}. Available: ${product?.currentStock || 0}` });
+      if (req.body.sourceBranchId) {
+        const stock = await BranchStock.findOne({ companyId: req.user.companyId, partyId: req.body.sourceBranchId, juiceType: jtId });
+        if (!stock || stock.quantity < item.quantity) {
+          return res.status(400).json({ message: `Insufficient stock in Branch. Available: ${stock ? stock.quantity : 0}` });
+        }
+      } else {
+        const product = await Product.findOne({ _id: jtId, companyId: req.user.companyId });
+        if (!product || product.currentStock < item.quantity) {
+          return res.status(400).json({ message: `Insufficient stock for ${product?.name || 'Product'}. Available: ${product?.currentStock || 0}` });
+        }
       }
     }
 
@@ -22,16 +29,34 @@ const createOrder = async (req, res) => {
     const savedOrder = await order.save();
     for (const item of savedOrder.items) {
       const jtId = item.juiceType?._id || item.juiceType;
-      await Product.findByIdAndUpdate(jtId, { $inc: { currentStock: -item.quantity } });
-      const okd = new Date(savedOrder.date); okd.setHours(0, 0, 0, 0);
-      await Production.findOneAndUpdate(
-          { juiceType: jtId, companyId: req.user.companyId, date: { $gte: okd, $lt: new Date(okd.getTime() + 86400000) } }, 
-          { 
-              $inc: { salesDuringProduction: item.quantity },
-              $setOnInsert: { quantityProduced: 0, date: okd } 
-          }, 
-          { upsert: true }
-      );
+      
+      if (savedOrder.sourceBranchId) {
+        await BranchStock.findOneAndUpdate(
+          { companyId: req.user.companyId, partyId: savedOrder.sourceBranchId, juiceType: jtId },
+          { $inc: { quantity: -item.quantity } }
+        );
+        await BranchTransfer.create({
+          companyId: req.user.companyId,
+          partyId: savedOrder.sourceBranchId,
+          juiceType: jtId,
+          type: 'OUT',
+          quantity: item.quantity,
+          rate: item.price,
+          date: savedOrder.date,
+          description: `Sale to ${savedOrder.customerName}`
+        });
+      } else {
+        await Product.findByIdAndUpdate(jtId, { $inc: { currentStock: -item.quantity } });
+        const okd = new Date(savedOrder.date); okd.setHours(0, 0, 0, 0);
+        await Production.findOneAndUpdate(
+            { juiceType: jtId, companyId: req.user.companyId, date: { $gte: okd, $lt: new Date(okd.getTime() + 86400000) } }, 
+            { 
+                $inc: { salesDuringProduction: item.quantity },
+                $setOnInsert: { quantityProduced: 0, date: okd } 
+            }, 
+            { upsert: true }
+        );
+      }
 
       // Handle Branch Transfer / Distributor Stock IN
       if (['Branch Transfer', 'Distributor'].includes(savedOrder.type) && savedOrder.partyId) {
@@ -68,7 +93,23 @@ const createOrder = async (req, res) => {
 
     // Create Cash Log or Bank Log entry if paid amount is > 0 and not Due
     const payMode = savedOrder.paymentMode || 'Cash';
-    if (savedOrder.paidAmount > 0 && payMode !== 'Credit' && payMode !== 'Due') {
+    if (payMode === 'Split') {
+      const BankLog = require('../models/BankLog');
+      const baseLogData = {
+        companyId: req.user.companyId,
+        type: 'IN',
+        category: 'Sale',
+        description: `Sale to ${savedOrder.customerName} (Split)`,
+        date: savedOrder.date,
+        referenceId: savedOrder._id
+      };
+      if (savedOrder.paidCash > 0) {
+        await CashLog.create({ ...baseLogData, amount: savedOrder.paidCash, paymentMode: 'Cash' });
+      }
+      if (savedOrder.paidOnline > 0) {
+        await BankLog.create({ ...baseLogData, amount: savedOrder.paidOnline, paymentMode: 'UPI' });
+      }
+    } else if (savedOrder.paidAmount > 0 && payMode !== 'Credit' && payMode !== 'Due') {
       const BankLog = require('../models/BankLog');
       const logData = {
         companyId: req.user.companyId,

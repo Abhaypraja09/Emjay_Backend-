@@ -43,13 +43,13 @@ const getCashLogs = async (req, res) => {
 
     // Convert orders to CashLog-shaped entries (ONLY CASH, ONLY PAID AMOUNT)
     const orderLogs = orders
-      .filter(o => o.paymentMode === 'Cash' || !o.paymentMode)
-      .filter(o => o.paidAmount > 0)
+      .filter(o => o.paymentMode === 'Cash' || o.paymentMode === 'Split' || !o.paymentMode)
+      .filter(o => (o.paymentMode === 'Split' ? o.paidCash > 0 : o.paidAmount > 0))
       .map(o => ({
         _id: `order_${o._id}`,
         type: 'IN',
         category: 'Sale',
-        amount: o.paidAmount,
+        amount: o.paymentMode === 'Split' ? o.paidCash : o.paidAmount,
         description: `Sale to ${o.customerName}`,
         paymentMode: 'Cash',
         date: o.date,
