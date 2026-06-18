@@ -2,6 +2,7 @@ const Production = require('../models/Production');
 const Order = require('../models/Order');
 const BottleInventory = require('../models/BottleInventory');
 const Product = require('../models/Product');
+const BranchTransfer = require('../models/BranchTransfer');
 
 /**
  * Production Stock Report
@@ -26,19 +27,25 @@ const getProductionStockReport = async (req, res) => {
       companyId: req.user.companyId, 
       'items.juiceType': productId 
     }).sort({ date: 1 });
+    
+    const transfers = await BranchTransfer.find({
+      companyId: req.user.companyId,
+      juiceType: productId,
+      type: 'IN' // INTO Branch means OUT from Production
+    }).sort({ date: 1 });
 
     // 2. Aggregate by day
     const dailyData = {};
 
     productions.forEach(p => {
       const day = new Date(p.date).toISOString().split('T')[0];
-      if (!dailyData[day]) dailyData[day] = { production: 0, sales: 0 };
+      if (!dailyData[day]) dailyData[day] = { production: 0, sales: 0, transfers: 0 };
       dailyData[day].production += p.quantityProduced;
     });
 
     orders.forEach(o => {
       const day = new Date(o.date || o.createdAt).toISOString().split('T')[0];
-      if (!dailyData[day]) dailyData[day] = { production: 0, sales: 0 };
+      if (!dailyData[day]) dailyData[day] = { production: 0, sales: 0, transfers: 0 };
       
       const item = o.items.find(i => i.juiceType.toString() === productId);
       if (item) {
@@ -46,27 +53,40 @@ const getProductionStockReport = async (req, res) => {
       }
     });
 
-    // 3. Calculate running balances
-    const sortedDays = Object.keys(dailyData).sort();
-    let runningBalance = 0;
+    transfers.forEach(t => {
+      const day = new Date(t.date || t.createdAt).toISOString().split('T')[0];
+      if (!dailyData[day]) dailyData[day] = { production: 0, sales: 0, transfers: 0 };
+      dailyData[day].transfers += t.quantity;
+    });
+
+    // 3. Calculate running balances BACKWARDS from actual currentStock
+    const product = await Product.findById(productId);
+    let runningBalance = product ? product.currentStock : 0;
+    
+    const sortedDaysDesc = Object.keys(dailyData).sort().reverse();
     const report = [];
 
-    sortedDays.forEach(day => {
-      const opening = runningBalance;
+    sortedDaysDesc.forEach(day => {
+      const closing = runningBalance;
       const prod = dailyData[day].production;
       const sale = dailyData[day].sales;
-      const closing = opening + prod - sale;
+      const trans = dailyData[day].transfers;
+      const opening = closing - prod + sale + trans;
 
+      // We push it to report. Since we are going backwards, we will reverse it again at the end.
       report.push({
         date: day,
         openingStock: opening,
         production: prod,
         sales: sale,
+        transfers: trans,
         closingStock: closing
       });
 
-      runningBalance = closing;
+      runningBalance = opening;
     });
+
+    report.reverse();
 
     // 4. Filter by requested date range
     let filteredReport = report;

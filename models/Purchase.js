@@ -5,6 +5,7 @@ const itemSchema = new mongoose.Schema({
   category: { type: String, enum: ['Raw Materials', 'Bottles', 'Packaging', 'Machinery', 'Utilities', 'Other'], default: 'Raw Materials' },
   quantity: { type: Number },
   unit: { type: String },
+  numberOfPieces: { type: Number },
   rate: { type: Number, required: true },
   amount: { type: Number, required: true }
 });
@@ -13,6 +14,7 @@ const purchaseSchema = new mongoose.Schema({
   companyId: { type: String, required: true, default: 'emjay-master' },
   items: [itemSchema],
   totalCost: { type: Number, required: true },
+  invoiceNumber: { type: String },
   supplier: { type: String },
   partyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Party' },
   date: { type: Date, default: Date.now },

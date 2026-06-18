@@ -47,12 +47,14 @@ exports.addPurchase = async (req, res) => {
                              (purchase.status === 'Online/UPI') ? ' [Paid Online]' :
                              (purchase.status === 'Split') ? ' [Split Paid]' : '';
                              
+        const invStr = purchase.invoiceNumber ? ` (Inv: ${purchase.invoiceNumber})` : '';
+                             
         await new Transaction({
             partyId: req.body.partyId,
             purchaseId: purchase._id,
             amount: purchase.totalCost || req.body.cost,
             type: 'debit',
-            description: `Purchase - ${vendorName}${paymentLabel}`,
+            description: `Purchase${invStr} - ${vendorName}${paymentLabel}`,
             date: purchase.date || Date.now()
         }).save();
 
@@ -160,13 +162,15 @@ exports.updatePurchase = async (req, res) => {
                                  (purchase.status === 'Online/UPI') ? ' [Paid Online]' :
                                  (purchase.status === 'Split') ? ' [Split Paid]' : '';
 
+            const invStr = purchase.invoiceNumber ? ` (Inv: ${purchase.invoiceNumber})` : '';
+
             // Debit (Purchase) combined for all items
             await new Transaction({
                 partyId: purchase.partyId,
                 purchaseId: purchase._id,
                 amount: purchase.totalCost || purchase.cost,
                 type: 'debit',
-                description: `Purchase - ${vendorName}${paymentLabel}`,
+                description: `Purchase${invStr} - ${vendorName}${paymentLabel}`,
                 date: purchase.date || Date.now()
             }).save();
 
