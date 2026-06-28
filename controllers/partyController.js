@@ -12,7 +12,8 @@ exports.getParties = async (req, res) => {
 
 exports.addParty = async (req, res) => {
   try {
-    const party = new Party(req.body);
+    const partyData = { ...req.body, balance: req.body.openingBalance || 0 };
+    const party = new Party(partyData);
     await party.save();
     res.status(201).json(party);
   } catch (error) {

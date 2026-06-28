@@ -2,6 +2,8 @@ const Product = require('../models/Product');
 const Order = require('../models/Order');
 const BottleInventory = require('../models/BottleInventory');
 const Production = require('../models/Production');
+const BranchTransfer = require('../models/BranchTransfer');
+const Purchase = require('../models/Purchase');
 
 const getDashboardStats = async (req, res) => {
   try {
@@ -127,10 +129,12 @@ const getDailyReport = async (req, res) => {
 
         const dateRange = { $gte: startOfDay, $lte: endOfDay };
 
-        const [productions, orders, bottles] = await Promise.all([
+        const [productions, orders, bottles, branchTransfers, purchases] = await Promise.all([
             Production.find({ date: dateRange, companyId: req.user.companyId }).populate('juiceType'),
             Order.find({ createdAt: dateRange, companyId: req.user.companyId }).populate('items.juiceType'),
-            BottleInventory.find({ date: dateRange, companyId: req.user.companyId })
+            BottleInventory.find({ date: dateRange, companyId: req.user.companyId }),
+            BranchTransfer.find({ date: dateRange, companyId: req.user.companyId }).populate('partyId').populate('juiceType'),
+            Purchase.find({ date: dateRange, companyId: req.user.companyId }).populate('partyId')
         ]);
 
         const productionBreakdown = productions.reduce((acc, p) => {
@@ -151,9 +155,13 @@ const getDailyReport = async (req, res) => {
             productions,
             orders,
             bottles,
+            branchTransfers,
+            purchases,
             summary: {
                 totalProduced: productions.reduce((acc, p) => acc + p.quantityProduced, 0),
                 totalSales: orders.reduce((acc, o) => acc + o.totalAmount, 0),
+                totalPurchases: purchases.reduce((acc, p) => acc + (p.totalCost || p.cost || 0), 0),
+                totalBranchTransferBottles: branchTransfers.reduce((acc, b) => acc + (b.quantity || 0), 0),
                 totalProductSoldQty: orders.reduce((acc, o) => acc + o.items.reduce((sum, item) => sum + item.quantity, 0), 0),
                 bottlesIn: bottles.filter(b => b.type === 'IN').reduce((acc, b) => acc + b.quantity, 0),
                 bottlesOut: bottles.filter(b => b.type === 'OUT').reduce((acc, b) => acc + b.quantity, 0),

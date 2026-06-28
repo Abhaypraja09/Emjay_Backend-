@@ -113,6 +113,23 @@ const getProductionStockReport = async (req, res) => {
       filteredReport = filteredReport.filter(r => r.date <= eDate);
     }
 
+    // Inject carry-forward entry for the 1st of the month if filtering by month
+    if (sDate && eDate && req.query.month !== undefined) {
+       const beforeEntries = report.filter(r => r.date < sDate);
+       const carriedForward = beforeEntries.length > 0 ? beforeEntries[beforeEntries.length - 1].closingStock : 0;
+       
+       if (filteredReport.length === 0 || filteredReport[0].date > sDate) {
+           filteredReport.unshift({
+               date: sDate,
+               openingStock: carriedForward,
+               production: 0,
+               sales: 0,
+               transfers: 0,
+               closingStock: carriedForward
+           });
+       }
+    }
+
     filteredReport.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     res.json(filteredReport);
   } catch (error) {
@@ -196,6 +213,22 @@ const getBottleStockReport = async (req, res) => {
       filteredReport = filteredReport.filter(r => r.date <= eDate);
     }
 
+    // Inject carry-forward entry for the 1st of the month if filtering by month
+    if (sDate && eDate && req.query.month !== undefined) {
+       const beforeEntries = report.filter(r => r.date < sDate);
+       const carriedForward = beforeEntries.length > 0 ? beforeEntries[beforeEntries.length - 1].closingStock : 0;
+       
+       if (filteredReport.length === 0 || filteredReport[0].date > sDate) {
+           filteredReport.unshift({
+               date: sDate,
+               openingStock: carriedForward,
+               buy: 0,
+               used: 0,
+               closingStock: carriedForward
+           });
+       }
+    }
+
     filteredReport.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     res.json(filteredReport);
   } catch (error) {
@@ -261,7 +294,21 @@ const getGlobalStockReport = async (req, res) => {
     if (month && year) {
       const sDate = new Date(Date.UTC(year, month - 1, 1)).toISOString().split('T')[0];
       const eDate = new Date(Date.UTC(year, month, 0)).toISOString().split('T')[0];
+      
+      const beforeEntries = report.filter(r => r.date < sDate);
+      const carriedForward = beforeEntries.length > 0 ? beforeEntries[beforeEntries.length - 1].closingStock : 0;
+
       filteredReport = filteredReport.filter(r => r.date >= sDate && r.date <= eDate);
+
+      if (filteredReport.length === 0 || filteredReport[0].date > sDate) {
+          filteredReport.unshift({
+              date: sDate,
+              openingStock: carriedForward,
+              production: 0,
+              sales: 0,
+              closingStock: carriedForward
+          });
+      }
     }
 
     res.json(filteredReport);

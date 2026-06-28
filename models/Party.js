@@ -8,6 +8,7 @@ const partySchema = new mongoose.Schema({
   address: { type: String },
   gstRegistered: { type: Boolean, default: false },
   gstNumber: { type: String },
+  openingBalance: { type: Number, default: 0 }, // Initial balance at creation
   balance: { type: Number, default: 0 }, // Positive = They owe us, Negative = We owe them
 }, { timestamps: true });
 

@@ -91,42 +91,8 @@ const createOrder = async (req, res) => {
       await Party.findByIdAndUpdate(savedOrder.partyId, { $inc: { balance: savedOrder.dueAmount } });
     }
 
-    // Create Cash Log or Bank Log entry if paid amount is > 0 and not Due
-    const payMode = savedOrder.paymentMode || 'Cash';
-    if (payMode === 'Split') {
-      const BankLog = require('../models/BankLog');
-      const baseLogData = {
-        companyId: req.user.companyId,
-        type: 'IN',
-        category: 'Sale',
-        description: `Sale to ${savedOrder.customerName} (Split)`,
-        date: savedOrder.date,
-        referenceId: savedOrder._id
-      };
-      if (savedOrder.paidCash > 0) {
-        await CashLog.create({ ...baseLogData, amount: savedOrder.paidCash, paymentMode: 'Cash' });
-      }
-      if (savedOrder.paidOnline > 0) {
-        await BankLog.create({ ...baseLogData, amount: savedOrder.paidOnline, paymentMode: 'UPI' });
-      }
-    } else if (savedOrder.paidAmount > 0 && payMode !== 'Credit' && payMode !== 'Due') {
-      const BankLog = require('../models/BankLog');
-      const logData = {
-        companyId: req.user.companyId,
-        type: 'IN',
-        category: 'Sale',
-        amount: savedOrder.paidAmount,
-        description: `Sale to ${savedOrder.customerName}`,
-        paymentMode: payMode,
-        date: savedOrder.date,
-        referenceId: savedOrder._id
-      };
-      if (payMode === 'Cash') {
-        await CashLog.create(logData);
-      } else {
-        await BankLog.create(logData);
-      }
-    }
+    // Cash Book and Bank Book entries are generated dynamically by their respective controllers
+    // using the Order collection.
 
     res.status(201).json(savedOrder);
   } catch (error) { res.status(400).json({ message: error.message }); }
