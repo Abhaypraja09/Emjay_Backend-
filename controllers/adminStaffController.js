@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const { DateTime } = require('luxon');
 const StaffAttendance = require('../models/StaffAttendance');
 const LeaveRequest = require('../models/LeaveRequest');
 const StaffSalaryPayment = require('../models/StaffSalaryPayment');
@@ -131,18 +132,24 @@ exports.processSalary = async (req, res) => {
     const perDaySalary = basicSalary / totalDays;
     
     let unpaidAbsents = 0;
+    let earnedSalary = 0;
     
-    if (staff.employmentType === 'REGULAR (WITH LEAVE ALLOWANCE)') {
-      const quota = staff.monthlyLeaveQuota || 0;
-      paidLeaves = Math.min(absentDays, quota);
-      unpaidAbsents = Math.max(0, absentDays - quota);
-    } else {
-      // FIXED (30 DAYS / NO LEAVE TRACKING)
+    if (staff.employmentType === 'DAILY WAGE') {
       paidLeaves = 0;
-      unpaidAbsents = absentDays;
+      unpaidAbsents = 0;
+      earnedSalary = presentDays * basicSalary;
+    } else {
+      if (staff.employmentType === 'REGULAR (WITH LEAVE ALLOWANCE)') {
+        const quota = staff.monthlyLeaveQuota || 0;
+        paidLeaves = Math.min(absentDays, quota);
+        unpaidAbsents = Math.max(0, absentDays - quota);
+      } else {
+        // FIXED (30 DAYS / NO LEAVE TRACKING)
+        paidLeaves = 0;
+        unpaidAbsents = absentDays;
+      }
+      earnedSalary = basicSalary - (unpaidAbsents * perDaySalary);
     }
-
-    const earnedSalary = basicSalary - (unpaidAbsents * perDaySalary);
 
     // Fetch Extras
     const extras = await StaffExtras.find({
@@ -202,8 +209,8 @@ exports.addManualDuty = async (req, res) => {
     const attendance = await StaffAttendance.findOneAndUpdate(
       { staff: staffId, date, companyId: req.user.companyId },
       {
-        punchIn: { time: new Date(`${date}T${timeIn}:00`), location: { lat: 0, lng: 0 } },
-        punchOut: timeOut ? { time: new Date(`${date}T${timeOut}:00`), location: { lat: 0, lng: 0 } } : null,
+        punchIn: { time: DateTime.fromISO(`${date}T${timeIn}:00`, { zone: 'Asia/Kolkata' }).toJSDate(), location: { lat: 0, lng: 0 } },
+        punchOut: timeOut ? { time: DateTime.fromISO(`${date}T${timeOut}:00`, { zone: 'Asia/Kolkata' }).toJSDate(), location: { lat: 0, lng: 0 } } : null,
         status: status || 'present'
       },
       { new: true, upsert: true }
@@ -333,18 +340,24 @@ exports.bulkProcessSalary = async (req, res) => {
       
       let paidLeaves = 0;
       let unpaidAbsents = 0;
+      let earnedSalary = 0;
       
-      if (staff.employmentType === 'REGULAR (WITH LEAVE ALLOWANCE)') {
-        const quota = staff.monthlyLeaveQuota || 0;
-        paidLeaves = Math.min(absentDays, quota);
-        unpaidAbsents = Math.max(0, absentDays - quota);
-      } else {
-        // FIXED (30 DAYS / NO LEAVE TRACKING)
+      if (staff.employmentType === 'DAILY WAGE') {
         paidLeaves = 0;
-        unpaidAbsents = absentDays;
+        unpaidAbsents = 0;
+        earnedSalary = presentDays * basicSalary;
+      } else {
+        if (staff.employmentType === 'REGULAR (WITH LEAVE ALLOWANCE)') {
+          const quota = staff.monthlyLeaveQuota || 0;
+          paidLeaves = Math.min(absentDays, quota);
+          unpaidAbsents = Math.max(0, absentDays - quota);
+        } else {
+          // FIXED (30 DAYS / NO LEAVE TRACKING)
+          paidLeaves = 0;
+          unpaidAbsents = absentDays;
+        }
+        earnedSalary = basicSalary - (unpaidAbsents * perDaySalary);
       }
-
-      const earnedSalary = basicSalary - (unpaidAbsents * perDaySalary);
 
       const extras = await StaffExtras.find({
         staff: staff._id, month, year, status: 'Approved'

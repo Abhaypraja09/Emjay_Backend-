@@ -3,6 +3,16 @@ const LeaveRequest = require('../models/LeaveRequest');
 const StaffSalaryPayment = require('../models/StaffSalaryPayment');
 const User = require('../models/User');
 
+const haversineDistance = (coords1, coords2) => {
+  const toRad = (x) => (x * Math.PI) / 180;
+  const R = 6371e3; // meters
+  const dLat = toRad(coords2.lat - coords1.lat);
+  const dLng = toRad(coords2.lng - coords1.lng);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(toRad(coords1.lat)) * Math.cos(toRad(coords2.lat)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
 const getTodayString = () => {
   const d = new Date();
   const year = d.getFullYear();
@@ -54,6 +64,20 @@ exports.punchIn = async (req, res) => {
       return res.status(401).json({ message: 'Authentication Failed: Face does not match!' });
     }
 
+    // Work Geofencing Validation with GPS Accuracy Buffer
+    if (user.geofence && user.geofence.lat && user.geofence.lng) {
+      if (!location || !location.lat || !location.lng) {
+        return res.status(400).json({ message: 'Location required for geofenced staff.' });
+      }
+      const geoDistance = haversineDistance(user.geofence, location);
+      const accuracyBuffer = Math.min(location.accuracy || 0, 500);
+      const allowedRadius = user.geofence.radius || 100;
+      
+      if (geoDistance - accuracyBuffer > allowedRadius) {
+        return res.status(400).json({ message: 'Out of Geofence! You must be at the office to punch in.' });
+      }
+    }
+
     const existing = await StaffAttendance.findOne({ staff: req.user._id, date: today });
     if (existing) {
       return res.status(400).json({ message: 'Already punched in today' });
@@ -95,6 +119,20 @@ exports.punchOut = async (req, res) => {
     distance = Math.sqrt(distance);
     if (distance > 0.55) {
       return res.status(401).json({ message: 'Authentication Failed: Face does not match!' });
+    }
+
+    // Work Geofencing Validation with GPS Accuracy Buffer
+    if (user.geofence && user.geofence.lat && user.geofence.lng) {
+      if (!location || !location.lat || !location.lng) {
+        return res.status(400).json({ message: 'Location required for geofenced staff.' });
+      }
+      const geoDistance = haversineDistance(user.geofence, location);
+      const accuracyBuffer = Math.min(location.accuracy || 0, 500);
+      const allowedRadius = user.geofence.radius || 100;
+      
+      if (geoDistance - accuracyBuffer > allowedRadius) {
+        return res.status(400).json({ message: 'Out of Geofence! You must be at the office to punch out.' });
+      }
     }
 
     const attendance = await StaffAttendance.findOne({ staff: req.user._id, date: today });

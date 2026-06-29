@@ -13,7 +13,7 @@ const userSchema = new mongoose.Schema({
   faceDescriptor: { type: [Number] },
   designation: { type: String },
   joiningDate: { type: Date },
-  employmentType: { type: String, enum: ['REGULAR (WITH LEAVE ALLOWANCE)', 'FIXED (30 DAYS / NO LEAVE TRACKING)'] },
+  employmentType: { type: String, enum: ['REGULAR (WITH LEAVE ALLOWANCE)', 'FIXED (30 DAYS / NO LEAVE TRACKING)', 'DAILY WAGE'] },
   monthlyLeaveQuota: { type: Number, default: 0 },
   geofence: {
     lat: { type: Number },
