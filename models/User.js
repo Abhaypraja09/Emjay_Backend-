@@ -14,6 +14,14 @@ const userSchema = new mongoose.Schema({
   designation: { type: String },
   joiningDate: { type: Date },
   employmentType: { type: String, enum: ['REGULAR (WITH LEAVE ALLOWANCE)', 'FIXED (30 DAYS / NO LEAVE TRACKING)', 'DAILY WAGE'] },
+  staffType: { type: String, enum: ['Regular', 'Fixed', 'Daily', 'Hotel'], default: 'Regular' },
+  status: { type: String, enum: ['active', 'blocked'], default: 'active' },
+  overtime: {
+    enabled: { type: Boolean, default: false },
+    thresholdHours: { type: Number, default: 9 },
+    ratePerHour: { type: Number, default: 100 }
+  },
+  monthlyTarget: { type: Number, default: 26 },
   monthlyLeaveQuota: { type: Number, default: 0 },
   geofence: {
     lat: { type: Number },
@@ -25,9 +33,6 @@ const userSchema = new mongoose.Schema({
     endTime: { type: String, default: '06:00 PM' }
   }
 }, { timestamps: true });
-
-userSchema.index({ email: 1 }, { sparse: true });
-userSchema.index({ username: 1 }, { sparse: true });
 
 userSchema.pre('save', async function() {
   if (!this.isModified('password')) return;

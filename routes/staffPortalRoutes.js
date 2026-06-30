@@ -7,7 +7,9 @@ const {
   applyLeave,
   getLeaves,
   getSalaryCycles,
-  registerFace
+  registerFace,
+  updatePassword,
+  getCurrentCycleReport
 } = require('../controllers/staffPortalController');
 const { protect } = require('../middleware/auth');
 const router = express.Router();
@@ -29,5 +31,7 @@ router.get('/history', protect, staffAuth, getHistory);
 router.post('/leave', protect, staffAuth, applyLeave);
 router.get('/leaves', protect, staffAuth, getLeaves);
 router.get('/salary-cycles', protect, staffAuth, getSalaryCycles);
+router.put('/update-password', protect, staffAuth, updatePassword);
+router.get('/report', protect, staffAuth, getCurrentCycleReport);
 
 module.exports = router;

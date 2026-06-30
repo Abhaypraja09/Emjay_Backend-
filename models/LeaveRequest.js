@@ -7,7 +7,7 @@ const leaveRequestSchema = new mongoose.Schema({
   endDate: { type: String, required: true },   // Format: YYYY-MM-DD
   reason: { type: String, required: true },
   status: { type: String, enum: ['Pending', 'Approved', 'Rejected'], default: 'Pending' },
-  type: { type: String, enum: ['Sick Leave', 'Casual Leave', 'Personal', 'Paid Leave'], required: true }
+  type: { type: String, enum: ['Sick Leave', 'Casual Leave', 'Personal', 'Emergency', 'Full Day', 'Half Day', 'Paid Leave'], required: true }
 }, { timestamps: true });
 
 module.exports = mongoose.model('LeaveRequest', leaveRequestSchema);

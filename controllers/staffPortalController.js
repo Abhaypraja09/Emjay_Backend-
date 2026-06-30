@@ -2,6 +2,8 @@ const StaffAttendance = require('../models/StaffAttendance');
 const LeaveRequest = require('../models/LeaveRequest');
 const StaffSalaryPayment = require('../models/StaffSalaryPayment');
 const User = require('../models/User');
+const StaffExtras = require('../models/StaffExtras');
+const bcrypt = require('bcryptjs');
 
 const haversineDistance = (coords1, coords2) => {
   const toRad = (x) => (x * Math.PI) / 180;
@@ -48,6 +50,14 @@ exports.punchIn = async (req, res) => {
     const user = await User.findById(req.user._id);
     const { location, faceDescriptor } = req.body;
 
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (user.status === 'blocked') {
+      return res.status(403).json({ message: 'Your account has been blocked. Please contact the administrator.' });
+    }
+
     // Verify face
     if (!user.faceDescriptor || user.faceDescriptor.length === 0) {
       return res.status(400).json({ message: 'Face not registered. Please register your face first.' });
@@ -81,6 +91,17 @@ exports.punchIn = async (req, res) => {
     const existing = await StaffAttendance.findOne({ staff: req.user._id, date: today });
     if (existing) {
       return res.status(400).json({ message: 'Already punched in today' });
+    }
+
+    const activeLeave = await LeaveRequest.findOne({
+      staff: req.user._id,
+      status: 'Approved',
+      startDate: { $lte: today },
+      endDate: { $gte: today }
+    });
+
+    if (activeLeave) {
+      return res.status(400).json({ message: 'Cannot punch in while on an approved leave.' });
     }
 
     const attendance = new StaffAttendance({
@@ -160,9 +181,17 @@ exports.getHistory = async (req, res) => {
   try {
     const { month, year } = req.query; // optional filtering
     let filter = { staff: req.user._id };
+    
+    // Enforce 60-day limit
+    const sixtyDaysAgo = new Date();
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+    const sixtyDaysAgoStr = sixtyDaysAgo.toISOString().split('T')[0];
+
     if (month && year) {
       const regex = new RegExp(`^${year}-${String(month).padStart(2, '0')}`);
-      filter.date = { $regex: regex };
+      filter.date = { $regex: regex, $gte: sixtyDaysAgoStr };
+    } else {
+      filter.date = { $gte: sixtyDaysAgoStr };
     }
     const history = await StaffAttendance.find(filter).sort({ date: -1 });
     res.json(history);
@@ -200,7 +229,9 @@ exports.getLeaves = async (req, res) => {
 
 exports.getSalaryCycles = async (req, res) => {
   try {
-    const salaries = await StaffSalaryPayment.find({ staff: req.user._id }).sort({ year: -1, month: -1 });
+    const salaries = await StaffSalaryPayment.find({ staff: req.user._id })
+      .sort({ year: -1, month: -1 })
+      .limit(12);
     res.json(salaries);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -223,6 +254,199 @@ exports.registerFace = async (req, res) => {
     res.json({ message: 'Face registered successfully' });
   } catch (error) {
     console.error('Register face error:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.updatePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current password and new password are required' });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Incorrect current password' });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.getCurrentCycleReport = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // Calculate current cycle dates based on joining date
+    const today = new Date();
+    const joinDate = user.joiningDate || today;
+    const joinDay = new Date(joinDate).getDate();
+
+    let start = new Date(today.getFullYear(), today.getMonth(), joinDay);
+    let end = new Date(today.getFullYear(), today.getMonth() + 1, joinDay - 1);
+
+    if (today < start) {
+      start = new Date(today.getFullYear(), today.getMonth() - 1, joinDay);
+      end = new Date(today.getFullYear(), today.getMonth(), joinDay - 1);
+    }
+
+    const startStr = start.toISOString().split('T')[0];
+    const endStr = end.toISOString().split('T')[0];
+    const totalDaysInCycle = Math.ceil(Math.abs(end - start) / (1000 * 60 * 60 * 24)) + 1;
+
+    // Fetch attendance records in this cycle
+    const attendance = await StaffAttendance.find({
+      staff: user._id,
+      date: { $gte: startStr, $lte: endStr }
+    });
+
+    let presentDays = 0;
+    let halfDays = 0;
+    let absentDays = 0;
+
+    attendance.forEach(a => {
+      if (a.status === 'present') presentDays++;
+      else if (a.status === 'half-day') halfDays++;
+      else if (a.status === 'absent') absentDays++;
+    });
+
+    const totalWorked = presentDays + (halfDays * 0.5);
+
+    // Fetch approved leaves in this cycle
+    const leaves = await LeaveRequest.find({
+      staff: user._id,
+      status: 'Approved',
+      $or: [
+        { startDate: { $lte: endStr }, endDate: { $gte: startStr } }
+      ]
+    });
+
+    let paidLeaves = 0;
+    leaves.forEach(l => {
+      if (['Sick Leave', 'Paid Leave', 'Full Day'].includes(l.type)) {
+        let current = new Date(l.startDate);
+        let leaveEnd = new Date(l.endDate);
+        while (current <= leaveEnd) {
+          if (current >= start && current <= end) paidLeaves += 1;
+          current.setDate(current.getDate() + 1);
+        }
+      } else if (l.type === 'Half Day') {
+        let current = new Date(l.startDate);
+        let leaveEnd = new Date(l.endDate);
+        while (current <= leaveEnd) {
+          if (current >= start && current <= end) paidLeaves += 0.5;
+          current.setDate(current.getDate() + 1);
+        }
+      }
+    });
+
+    // Overtime hours
+    let overtimeHours = 0;
+    let overtimeAmount = 0;
+    if (user.overtime && user.overtime.enabled) {
+      attendance.forEach(a => {
+        if (a.punchIn && a.punchOut && a.status !== 'absent') {
+          const startT = new Date(a.punchIn.time);
+          const endT = new Date(a.punchOut.time);
+          const diffHours = Math.abs(endT - startT) / (1000 * 60 * 60);
+          if (diffHours > user.overtime.thresholdHours) {
+            overtimeHours += (diffHours - user.overtime.thresholdHours);
+          }
+        }
+      });
+      overtimeAmount = overtimeHours * user.overtime.ratePerHour;
+    }
+
+    // Advances / Allowances
+    const extras = await StaffExtras.find({
+      staff: user._id,
+      createdAt: { $gte: start, $lte: end },
+      status: 'Approved'
+    });
+
+    let allowances = 0;
+    let advances = 0;
+    extras.forEach(e => {
+      if (e.type === 'Allowance') allowances += e.amount;
+      else if (e.type === 'Advance') advances += e.amount;
+    });
+
+    // Salary estimation
+    const basicSalary = user.salary || 0;
+    let earnedSalary = 0;
+    if (user.staffType === 'Daily') {
+      earnedSalary = totalWorked * basicSalary;
+    } else {
+      // Calculate Sundays
+      let paidSundays = 0;
+      let unpaidSundays = 0;
+      let currentDate = new Date(start);
+      while (currentDate <= end) {
+        if (currentDate.getDay() === 0) {
+          if (user.staffType === 'Regular' || user.staffType === 'Hotel') {
+            let monToSatPresent = 0;
+            let monToSatLeaves = 0;
+            let checkDate = new Date(currentDate);
+            checkDate.setDate(checkDate.getDate() - 6);
+            
+            while (checkDate < currentDate) {
+              const cStr = checkDate.toISOString().split('T')[0];
+              const a = attendance.find(x => x.date === cStr);
+              if (a && a.status !== 'absent') monToSatPresent++;
+              
+              let onLeave = false;
+              leaves.forEach(l => {
+                if (cStr >= l.startDate && cStr <= l.endDate) onLeave = true;
+              });
+              if (onLeave) monToSatLeaves++;
+              
+              checkDate.setDate(checkDate.getDate() + 1);
+            }
+            
+            if (monToSatPresent + monToSatLeaves < 6) {
+              unpaidSundays++;
+            } else {
+              paidSundays++;
+            }
+          } else {
+            unpaidSundays++;
+          }
+        }
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+
+      const earnedDays = totalWorked + paidLeaves + paidSundays;
+      earnedSalary = (earnedDays / totalDaysInCycle) * basicSalary;
+    }
+
+    const netPayable = earnedSalary + overtimeAmount + allowances - advances;
+
+    res.json({
+      cycleStart: startStr,
+      cycleEnd: endStr,
+      totalDaysInCycle,
+      presentDays: totalWorked,
+      paidLeaves,
+      absentDays,
+      overtimeHours,
+      overtimeAmount,
+      allowances,
+      advances,
+      basicSalary,
+      earnedSalary,
+      estimatedNetPayable: netPayable > 0 ? netPayable : 0
+    });
+  } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };

@@ -9,6 +9,7 @@ const staffExtrasSchema = new mongoose.Schema({
   month: { type: Number }, // derived from date
   year: { type: Number },  // derived from date
   description: { type: String },
+  givenBy: { type: String, default: 'Office' },
   status: { type: String, enum: ['Pending', 'Approved', 'Rejected', 'Deducted'], default: 'Approved' }
 }, { timestamps: true });
 
