@@ -44,6 +44,22 @@ exports.getStatus = async (req, res) => {
   }
 };
 
+// Utility for Geofencing
+function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+  var R = 6371; // Radius of the earth in km
+  var dLat = (lat2-lat1) * (Math.PI/180);  
+  var dLon = (lon2-lon1) * (Math.PI/180); 
+  var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+          Math.cos(lat1*(Math.PI/180)) * Math.cos(lat2*(Math.PI/180)) * 
+          Math.sin(dLon/2) * Math.sin(dLon/2); 
+  var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+  return R * c; 
+}
+
+const OFFICE_LAT = 28.7041; // Replace with your factory lat
+const OFFICE_LNG = 77.1025; // Replace with your factory lng
+const MAX_DISTANCE_KM = 0.5; // 500 meters allowed radius
+
 exports.punchIn = async (req, res) => {
   try {
     const today = getTodayString();
@@ -59,6 +75,18 @@ exports.punchIn = async (req, res) => {
       console.log("punchIn Error: blocked");
       return res.status(403).json({ message: 'Your account has been blocked. Please contact the administrator.' });
     }
+
+    // Geofencing Check
+    if (location && location.lat && location.lng) {
+      const geoDistance = getDistanceFromLatLonInKm(location.lat, location.lng, OFFICE_LAT, OFFICE_LNG);
+      if (geoDistance > MAX_DISTANCE_KM) {
+        console.log(`punchIn Error: Geofencing failed. Distance: ${geoDistance}km`);
+        return res.status(403).json({ message: 'You are too far from the office to punch in.' });
+      }
+    } else {
+        return res.status(400).json({ message: 'Location data is required for attendance.' });
+    }
+
 
     // Verify face
     if (!user.faceDescriptor || user.faceDescriptor.length === 0) {

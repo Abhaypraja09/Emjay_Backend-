@@ -20,7 +20,8 @@ const staffAttendanceSchema = new mongoose.Schema({
     },
     evidence: { type: String } // base64 image data
   },
-  status: { type: String, enum: ['present', 'absent', 'half-day'], default: 'present' }
+  status: { type: String, enum: ['present', 'absent', 'half-day'], default: 'present' },
+  isManual: { type: Boolean, default: false }
 }, { timestamps: true });
 
 staffAttendanceSchema.index({ staff: 1, date: 1 }, { unique: true });
