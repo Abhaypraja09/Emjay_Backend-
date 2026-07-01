@@ -14,7 +14,7 @@ const userSchema = new mongoose.Schema({
   designation: { type: String },
   joiningDate: { type: Date },
   employmentType: { type: String, enum: ['REGULAR (WITH LEAVE ALLOWANCE)', 'FIXED (30 DAYS / NO LEAVE TRACKING)', 'DAILY WAGE'] },
-  staffType: { type: String, enum: ['Regular', 'Fixed', 'Daily', 'Hotel'], default: 'Regular' },
+  staffType: { type: String, enum: ['Regular', 'Fixed', 'Daily'], default: 'Regular' },
   status: { type: String, enum: ['active', 'blocked'], default: 'active' },
   overtime: {
     enabled: { type: Boolean, default: false },
@@ -22,7 +22,7 @@ const userSchema = new mongoose.Schema({
     ratePerHour: { type: Number, default: 100 }
   },
   monthlyTarget: { type: Number, default: 26 },
-  monthlyLeaveQuota: { type: Number, default: 0 },
+  monthlyLeaveQuota: { type: Number, default: 4 },
   geofence: {
     lat: { type: Number },
     lng: { type: Number },

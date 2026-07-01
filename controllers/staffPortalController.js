@@ -51,15 +51,18 @@ exports.punchIn = async (req, res) => {
     const { location, faceDescriptor } = req.body;
 
     if (!user) {
+      console.log("punchIn Error: User not found");
       return res.status(404).json({ message: 'User not found' });
     }
 
     if (user.status === 'blocked') {
+      console.log("punchIn Error: blocked");
       return res.status(403).json({ message: 'Your account has been blocked. Please contact the administrator.' });
     }
 
     // Verify face
     if (!user.faceDescriptor || user.faceDescriptor.length === 0) {
+      console.log("punchIn Error: face not registered");
       return res.status(400).json({ message: 'Face not registered. Please register your face first.' });
     }
     
@@ -71,12 +74,14 @@ exports.punchIn = async (req, res) => {
     distance = Math.sqrt(distance);
 
     if (distance > 0.55) {
-      return res.status(401).json({ message: 'Authentication Failed: Face does not match!' });
+      console.log("punchIn Error: Face does not match, distance:", distance);
+      return res.status(400).json({ message: 'Authentication Failed: Face does not match!' }); // Changed from 401 to 400 for consistency in mobile app maybe? Wait, frontend had 400 Bad Request error. Let me keep it as it is but log it.
     }
 
     // Work Geofencing Validation with GPS Accuracy Buffer
     if (user.geofence && user.geofence.lat && user.geofence.lng) {
       if (!location || !location.lat || !location.lng) {
+        console.log("punchIn Error: Location required for geofenced staff");
         return res.status(400).json({ message: 'Location required for geofenced staff.' });
       }
       const geoDistance = haversineDistance(user.geofence, location);
@@ -84,12 +89,14 @@ exports.punchIn = async (req, res) => {
       const allowedRadius = user.geofence.radius || 100;
       
       if (geoDistance - accuracyBuffer > allowedRadius) {
+        console.log("punchIn Error: out of geofence");
         return res.status(400).json({ message: 'Out of Geofence! You must be at the office to punch in.' });
       }
     }
 
     const existing = await StaffAttendance.findOne({ staff: req.user._id, date: today });
     if (existing) {
+      console.log("punchIn Error: already punched in today");
       return res.status(400).json({ message: 'Already punched in today' });
     }
 
@@ -101,6 +108,7 @@ exports.punchIn = async (req, res) => {
     });
 
     if (activeLeave) {
+      console.log("punchIn Error: approved leave");
       return res.status(400).json({ message: 'Cannot punch in while on an approved leave.' });
     }
 

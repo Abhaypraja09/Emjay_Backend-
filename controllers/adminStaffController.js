@@ -222,13 +222,15 @@ exports.recordAdvance = async (req, res) => {
   try {
     const { staffId, amount, description, month, year, date, givenBy } = req.body;
     const advanceDate = date ? new Date(date) : new Date();
+    const finalMonth = month !== undefined ? month : advanceDate.getMonth();
+    const finalYear = year !== undefined ? year : advanceDate.getFullYear();
     const advance = new StaffExtras({
       staff: staffId,
       companyId: req.user.companyId,
       type: 'Advance',
       amount,
-      month,
-      year,
+      month: finalMonth,
+      year: finalYear,
       date: advanceDate,
       givenBy: givenBy || 'Office',
       description,
@@ -248,9 +250,15 @@ exports.getPayrollData = async (req, res) => {
     if (month !== undefined && month !== 'undefined' && year !== undefined && year !== 'undefined') {
       query.month = parseInt(month);
       query.year = parseInt(year);
+
+      // Auto-calculate payroll on the fly so it's always real-time
+      const staffList = await User.find({ role: 'Staff', companyId: req.user.companyId });
+      for (const staff of staffList) {
+        await processSingleStaffSalary(staff, query.month, query.year, req.user.companyId);
+      }
     }
 
-    const payments = await StaffSalaryPayment.find(query).populate('staff', 'name username');
+    const payments = await StaffSalaryPayment.find(query).populate('staff', 'name username role staffType salary joiningDate monthlyLeaveQuota');
     
     let totalBaseSalary = 0;
     let salaryPaid = 0;

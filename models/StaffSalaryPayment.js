@@ -25,7 +25,8 @@ const staffSalaryPaymentSchema = new mongoose.Schema({
   amount: { type: Number, required: true }, // Net Payable (Earned + Allowances - Advances)
   finalPaidAmount: { type: Number }, // Amount + Bonus - Deduction
   paymentDate: { type: Date, default: Date.now },
-  status: { type: String, enum: ['paid', 'pending'], default: 'paid' }
+  status: { type: String, enum: ['paid', 'pending'], default: 'paid' },
+  carryForwardStats: { type: Object }
 }, { timestamps: true });
 
 staffSalaryPaymentSchema.index({ staff: 1, month: 1, year: 1 }, { unique: true });
