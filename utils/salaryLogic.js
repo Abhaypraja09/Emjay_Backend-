@@ -46,11 +46,12 @@ exports.processSingleStaffSalary = async (staff, month, year, companyId) => {
     utilizedThisMonth: 0
   };
 
-  if (staff.staffType === 'Fixed') {
+  if (staff.staffType === 'Fix' || staff.staffType === 'Fixed') {
       earnedSalary = basicSalary;
       // Fixed gets full pay, no deductions, no paid Sunday calculations needed
-  } else if (staff.staffType === 'Daily') {
-      earnedSalary = totalWorked * basicSalary;
+  } else if (staff.staffType === 'Daily' || staff.staffType === 'Daily Wages') {
+      const dailyRate = basicSalary < 5000 ? basicSalary : basicSalary / totalDaysInCycle;
+      earnedSalary = totalWorked * dailyRate;
       // Daily gets exact days worked * daily rate
   } else {
       // REGULAR STAFF (WITH LEAVES)

@@ -105,13 +105,55 @@ exports.calculatePayroll = async (req, res) => {
         });
 
         // 4. Formula Calculation
-        const dailyRate = staff.salary / totalDays;
+        const dailyRate = (staff.staffType === 'Daily' || staff.staffType === 'Daily Wages') && staff.salary < 5000 
+            ? staff.salary 
+            : staff.salary / totalDays;
         
-        // Assume 4 paid sundays per month standard
-        const paidSundays = 4; 
-        
-        const earnedSalary = dailyRate * (presentDays + paidLeaves + paidSundays);
-        
+        let earnedSalary = 0;
+
+        if (staff.staffType === 'Fix') {
+            // Fix Salary: Always gets full basic salary
+            earnedSalary = staff.salary;
+        } 
+        else if (staff.staffType === 'Daily' || staff.staffType === 'Daily Wages') {
+            // Daily Wages: Only gets paid for present days (No Sundays, No Leaves)
+            earnedSalary = presentDays * dailyRate;
+        }
+        else {
+            // Regular Staff: Carry Forward Leave System & Deductions
+            const joinDate = new Date(staff.joinDate || Date.now());
+            const currentDate = new Date(year, month - 1, totalDays);
+            const monthsSinceJoining = (currentDate.getFullYear() - joinDate.getFullYear()) * 12 + currentDate.getMonth() - joinDate.getMonth();
+            const totalAccrued = Math.max(0, monthsSinceJoining) * (staff.monthlyLeaveQuota || 4);
+
+            // Get total approved leaves taken in the past (before this month)
+            const totalTakenLeavesObj = await LeaveRequest.find({
+                staff: staffId,
+                status: 'Approved',
+                endDate: { $lt: startDate }
+            });
+            let totalTakenLeaves = 0;
+            totalTakenLeavesObj.forEach(l => {
+                totalTakenLeaves += (new Date(l.endDate) - new Date(l.startDate)) / (1000*60*60*24) + 1;
+            });
+            
+            let availableLeaveBalance = totalAccrued - totalTakenLeaves;
+            if (availableLeaveBalance < 0) availableLeaveBalance = 0;
+
+            // Calculate Absent Days in current month
+            const expectedWorkingDays = totalDays - 4; // Assuming 4 Sundays
+            const absentDays = Math.max(0, expectedWorkingDays - presentDays);
+            
+            let unpaidAbsents = 0;
+            if (absentDays > availableLeaveBalance) {
+                unpaidAbsents = absentDays - availableLeaveBalance;
+            }
+
+            // Deduct unpaid absents from monthly salary
+            earnedSalary = staff.salary - (unpaidAbsents * dailyRate);
+            if (earnedSalary < 0) earnedSalary = 0;
+        }
+
         // Overtime (Simple assumption: Sunday worked = 1.5x daily rate)
         const overtimeAmount = sundaysWorked * (dailyRate * 1.5);
         
