@@ -8,6 +8,45 @@ const Transaction = require('../models/Transaction');
 const BranchStock = require('../models/BranchStock');
 const BranchTransfer = require('../models/BranchTransfer');
 
+const getFinancialYearDates = (date) => {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = d.getMonth() + 1;
+  let startDate, endDate;
+  if (month < 4) {
+    startDate = new Date(`${year - 1}-04-01T00:00:00.000Z`);
+    endDate = new Date(`${year}-03-31T23:59:59.999Z`);
+  } else {
+    startDate = new Date(`${year}-04-01T00:00:00.000Z`);
+    endDate = new Date(`${year + 1}-03-31T23:59:59.999Z`);
+  }
+  return { startDate, endDate };
+};
+
+const generateNextInvoiceNo = async (companyId, date) => {
+  const { startDate, endDate } = getFinancialYearDates(date);
+  const prefix = `E-B-`;
+  
+  const latestOrder = await Order.findOne({ 
+    companyId, 
+    date: { $gte: startDate, $lte: endDate },
+    invoiceNo: { $regex: `^${prefix}` } 
+  }).sort({ createdAt: -1 });
+
+  let nextNum = 1;
+  if (latestOrder && latestOrder.invoiceNo) {
+    const parts = latestOrder.invoiceNo.split('-');
+    if (parts.length === 3) {
+      const lastNum = parseInt(parts[2], 10);
+      if (!isNaN(lastNum)) {
+        nextNum = lastNum + 1;
+      }
+    }
+  }
+
+  return `${prefix}${nextNum.toString().padStart(2, '0')}`;
+};
+
 const createOrder = async (req, res) => {
   try {
     for (const item of req.body.items) {
@@ -25,7 +64,10 @@ const createOrder = async (req, res) => {
       }
     }
 
-    const order = new Order({ ...req.body, companyId: req.user.companyId, createdBy: req.user._id });
+    const orderDate = req.body.date || new Date();
+    const invoiceNo = await generateNextInvoiceNo(req.user.companyId, orderDate);
+
+    const order = new Order({ ...req.body, invoiceNo, companyId: req.user.companyId, createdBy: req.user._id });
     const savedOrder = await order.save();
     for (const item of savedOrder.items) {
       const jtId = item.juiceType?._id || item.juiceType;

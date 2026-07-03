@@ -6,6 +6,7 @@ const orderSchema = new mongoose.Schema({
   customerName: { type: String, required: true },
   shopName: { type: String },
   type: { type: String, enum: ['B2B', 'B2C', 'Customer', 'Branch Transfer', 'Distributor'], default: 'B2C' },
+  invoiceNo: { type: String },
   items: [
     {
       juiceType: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },

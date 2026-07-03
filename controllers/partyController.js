@@ -3,18 +3,45 @@ const Transaction = require('../models/Transaction');
 
 exports.getParties = async (req, res) => {
   try {
-    const parties = await Party.find().sort({ name: 1 });
-    res.json(parties);
+    const parties = await Party.find().sort({ name: 1 }).lean();
+    const transactions = await Transaction.aggregate([
+      { $group: { _id: "$partyId", lastTransactionDate: { $max: "$date" } } }
+    ]);
+    const txMap = {};
+    transactions.forEach(t => { if (t._id) txMap[t._id.toString()] = t.lastTransactionDate; });
+    const enrichedParties = parties.map(p => ({ ...p, lastTransactionDate: txMap[p._id.toString()] || null }));
+    res.json(enrichedParties);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
+const CashLog = require('../models/CashLog');
+const BankLog = require('../models/BankLog');
+
 exports.addParty = async (req, res) => {
   try {
-    const partyData = { ...req.body, balance: req.body.openingBalance || 0 };
+    let initialBalance = Number(req.body.openingBalance || 0);
+    if (req.body.type === 'supplier' && !req.body.openingBalanceType) {
+      // For a supplier, opening balance usually means "Payable" (we owe them), so it should be negative
+      initialBalance = -Math.abs(initialBalance);
+    }
+    const partyData = { ...req.body, balance: initialBalance };
     const party = new Party(partyData);
     await party.save();
+
+    if (partyData.balance !== 0) {
+      const isReceivable = partyData.balance > 0;
+      const transaction = new Transaction({
+        partyId: party._id,
+        amount: Math.abs(partyData.balance),
+        type: isReceivable ? 'credit' : 'debit', // Credit = they owe us (adds to balance), Debit = we owe them
+        description: 'Opening Balance',
+        date: new Date()
+      });
+      await transaction.save();
+    }
+
     res.status(201).json(party);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -24,8 +51,17 @@ exports.addParty = async (req, res) => {
 exports.updateParty = async (req, res) => {
   try {
     const party = await Party.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    if (!party) return res.status(404).json({ message: 'Party not found' });
     res.json(party);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+exports.deleteParty = async (req, res) => {
+  try {
+    await Party.findByIdAndDelete(req.params.id);
+    await Transaction.deleteMany({ partyId: req.params.id });
+    res.json({ message: 'Party deleted' });
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -44,18 +80,73 @@ exports.getTransactions = async (req, res) => {
 
 exports.addTransaction = async (req, res) => {
   try {
-    const { partyId, amount, type, description, date } = req.body;
-    const transaction = new Transaction({ partyId, amount, type, description, date });
+    const { partyId, amount, type, description, date, paymentMode } = req.body;
+    const transaction = new Transaction({ partyId, amount, type, description, date, paymentMode });
     await transaction.save();
 
     // Update party balance
     // Simple logic: Credit increases balance, Debit decreases balance
     const updateAmount = type === 'credit' ? amount : -amount;
-    await Party.findByIdAndUpdate(partyId, { $inc: { balance: updateAmount } });
+    const party = await Party.findByIdAndUpdate(partyId, { $inc: { balance: updateAmount } }, { new: true });
+
+    // Fetch party to know if it's customer or supplier
+    const currentParty = await Party.findById(partyId);
+    
+    // Handle CashLog / BankLog if paymentMode is provided
+    let shouldLog = false;
+    let logType = '';
+    let category = 'Other';
+
+    if (currentParty) {
+      if (currentParty.type === 'customer' && type === 'debit') {
+        shouldLog = true;
+        logType = 'IN';
+        category = 'Sale';
+      } else if (currentParty.type === 'supplier' && type === 'credit') {
+        shouldLog = true;
+        logType = 'OUT';
+        category = 'Purchase';
+      }
+    }
+
+    const companyId = req.user ? req.user.companyId : (currentParty ? currentParty.companyId : 'default');
+    
+    if (paymentMode && shouldLog) {
+      const desc = description || `Payment ${logType === 'IN' ? 'from' : 'to'} ${currentParty.name}`;
+      
+      const createCash = async (amt) => {
+        if (Number(amt) > 0) {
+          const cashLog = new CashLog({
+            companyId, type: logType, amount: Number(amt), category, source: 'Party Payment',
+            description: desc, date: date || new Date(), createdBy: req.user ? req.user._id : null
+          });
+          await cashLog.save();
+        }
+      };
+
+      const createBank = async (amt, mode) => {
+        if (Number(amt) > 0) {
+          const bankLog = new BankLog({
+            companyId, type: logType, amount: Number(amt), category, source: 'Party Payment', paymentMode: mode,
+            description: desc, date: date || new Date(), createdBy: req.user ? req.user._id : null
+          });
+          await bankLog.save();
+        }
+      };
+
+      if (paymentMode === 'Split') {
+        await createCash(req.body.paidCash);
+        await createBank(req.body.paidBank, 'UPI'); // Defaulting to UPI for the bank portion of Split
+      } else if (paymentMode === 'Cash') {
+        await createCash(amount);
+      } else {
+        await createBank(amount, paymentMode);
+      }
+    }
 
     res.status(201).json(transaction);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('400 ERROR:', error); res.status(400).json({ message: error.message });
   }
 };
 
@@ -86,7 +177,7 @@ exports.updateTransaction = async (req, res) => {
 
         res.json(updatedTx);
     } catch (error) {
-        res.status(400).json({ message: error.message });
+        console.error('400 ERROR:', error); res.status(400).json({ message: error.message });
     }
 };
 

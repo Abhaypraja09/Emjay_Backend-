@@ -184,7 +184,7 @@ exports.updatePurchase = async (req, res) => {
                     description: `Payment to ${vendorName}`,
                     date: purchase.date || Date.now()
                 }).save();
-            } else if (purchase.status === 'Online/UPI') {
+            } else if (purchase.status === 'UPI') {
                 await new Transaction({
                     partyId: purchase.partyId,
                     purchaseId: purchase._id,

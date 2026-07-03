@@ -8,16 +8,12 @@ const getBranchStocks = async (req, res) => {
   try {
     const { month, year } = req.query;
     
-    const stocks = await BranchStock.find({ companyId: req.user.companyId })
-      .populate('partyId', 'name')
-      .populate('juiceType', 'name pricePerUnit');
-      
     // Filter transfers by month/year
     const query = { companyId: req.user.companyId };
+    let startDate, endDate;
     if (month !== undefined && year !== undefined) {
       const m = parseInt(month);
       const y = parseInt(year);
-      let startDate, endDate;
       if (m === 0) {
         startDate = new Date(y, 3, 1);
         endDate = new Date(y + 1, 2, 31, 23, 59, 59, 999);
@@ -27,13 +23,45 @@ const getBranchStocks = async (req, res) => {
         endDate = new Date(actualYear, m, 0, 23, 59, 59, 999);
       }
       query.date = { $gte: startDate, $lte: endDate };
+    } else {
+      endDate = new Date(); // If no date provided, use current date
     }
       
-    // Fetch filtered transfers
+    // Fetch filtered transfers for recent transactions
     const transfers = await BranchTransfer.find(query)
       .populate('partyId', 'name')
       .populate('juiceType', 'name')
       .sort({ date: -1 });
+
+    // Calculate Stock as of endDate using Aggregation
+    const stockAgg = await BranchTransfer.aggregate([
+      { 
+        $match: { 
+          companyId: req.user.companyId,
+          date: { $lte: endDate }
+        }
+      },
+      {
+        $group: {
+          _id: { partyId: "$partyId", juiceType: "$juiceType" },
+          totalIn: { $sum: { $cond: [{ $eq: ["$type", "IN"] }, "$quantity", 0] } },
+          totalOut: { $sum: { $cond: [{ $eq: ["$type", "OUT"] }, "$quantity", 0] } }
+        }
+      },
+      {
+        $project: {
+          partyId: "$_id.partyId",
+          juiceType: "$_id.juiceType",
+          quantity: { $subtract: ["$totalIn", "$totalOut"] }
+        }
+      }
+    ]);
+
+    const stocks = stockAgg.map(s => ({
+      partyId: { _id: s.partyId ? s.partyId.toString() : null },
+      juiceType: { _id: s.juiceType ? s.juiceType.toString() : null },
+      quantity: s.quantity
+    }));
       
     res.json({ stocks, transfers });
   } catch (error) {
