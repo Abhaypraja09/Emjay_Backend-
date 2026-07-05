@@ -22,7 +22,7 @@ const BankLog = require('../models/BankLog');
 exports.addParty = async (req, res) => {
   try {
     let initialBalance = Number(req.body.openingBalance || 0);
-    if (req.body.type === 'supplier' && !req.body.openingBalanceType) {
+    if ((req.body.type === 'supplier' || req.body.type === 'bottle_supplier') && !req.body.openingBalanceType) {
       // For a supplier, opening balance usually means "Payable" (we owe them), so it should be negative
       initialBalance = -Math.abs(initialBalance);
     }
@@ -102,7 +102,7 @@ exports.addTransaction = async (req, res) => {
         shouldLog = true;
         logType = 'IN';
         category = 'Sale';
-      } else if (currentParty.type === 'supplier' && type === 'credit') {
+      } else if ((currentParty.type === 'supplier' || currentParty.type === 'bottle_supplier') && type === 'credit') {
         shouldLog = true;
         logType = 'OUT';
         category = 'Purchase';
@@ -112,7 +112,7 @@ exports.addTransaction = async (req, res) => {
     const companyId = req.user ? req.user.companyId : (currentParty ? currentParty.companyId : 'default');
     
     if (paymentMode && shouldLog) {
-      const desc = description || `Payment ${logType === 'IN' ? 'from' : 'to'} ${currentParty.name}`;
+      const desc = description ? `${description} (Party: ${currentParty.name})` : `Payment ${logType === 'IN' ? 'from' : 'to'} ${currentParty.name}`;
       
       const createCash = async (amt) => {
         if (Number(amt) > 0) {

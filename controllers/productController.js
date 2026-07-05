@@ -23,7 +23,52 @@ const createProduct = async (req, res) => {
 
 const getProducts = async (req, res) => {
   try {
-    const products = await Product.find({ companyId: req.user.companyId });
+    const products = await Product.find({ companyId: req.user.companyId }).lean();
+    
+    if (req.query.month !== undefined && req.query.year !== undefined) {
+      const m = parseInt(req.query.month);
+      const y = parseInt(req.query.year);
+      
+      let endDate;
+      if (m === 0) {
+        endDate = new Date(Date.UTC(y + 1, 2, 31, 23, 59, 59, 999));
+      } else {
+        const actualYear = m <= 3 ? y + 1 : y;
+        endDate = new Date(Date.UTC(actualYear, m, 0, 23, 59, 59, 999));
+      }
+
+      const Production = require('../models/Production');
+      const Order = require('../models/Order');
+      const BranchTransfer = require('../models/BranchTransfer');
+      
+      const productions = await Production.find({ companyId: req.user.companyId, isActive: true, date: { $gt: endDate } });
+      const orders = await Order.find({ companyId: req.user.companyId, $or: [ { date: { $gt: endDate } }, { createdAt: { $gt: endDate }, date: null } ] });
+      const transfers = await BranchTransfer.find({ companyId: req.user.companyId, type: 'IN', date: { $gt: endDate } });
+
+      for (let p of products) {
+        let futureProd = 0;
+        let futureSales = 0;
+        let futureTransfers = 0;
+
+        productions.filter(prod => prod.juiceType && prod.juiceType.toString() === p._id.toString()).forEach(prod => {
+          futureProd += prod.quantityProduced;
+        });
+
+        orders.forEach(o => {
+          const item = o.items.find(i => i.juiceType && i.juiceType.toString() === p._id.toString());
+          if (item) {
+            futureSales += item.quantity;
+          }
+        });
+
+        transfers.filter(t => t.juiceType && t.juiceType.toString() === p._id.toString()).forEach(t => {
+          futureTransfers += t.quantity;
+        });
+
+        p.currentStock = p.currentStock - futureProd + futureSales + futureTransfers;
+      }
+    }
+
     res.json(products);
   } catch (error) {
     res.status(500).json({ message: error.message });

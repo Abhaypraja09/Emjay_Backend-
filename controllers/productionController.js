@@ -2,6 +2,19 @@ const Production = require('../models/Production');
 const Product = require('../models/Product');
 const BottleInventory = require('../models/BottleInventory');
 
+const isPastMonth = (dateString) => {
+  if (!dateString) return false;
+  const inputDate = new Date(dateString);
+  const today = new Date();
+  const inputYear = inputDate.getFullYear();
+  const inputMonth = inputDate.getMonth();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+  if (inputYear < currentYear) return true;
+  if (inputYear === currentYear && inputMonth < currentMonth) return true;
+  return false;
+};
+
 const createProduction = async (req, res) => {
   console.log('--- STARTING PRODUCTION CREATE (PRECISION LINK) ---');
   
@@ -17,6 +30,10 @@ const createProduction = async (req, res) => {
         sizeCategory, 
         costValue 
     } = req.body;
+
+    if (isPastMonth(date)) {
+        return res.status(400).json({ message: 'Cannot record production in a past month with closed stock.' });
+    }
 
     const qty = Number(quantityProduced) || 0;
 
@@ -134,12 +151,16 @@ const getProductions = async (req, res) => {
 
 const updateProduction = async (req, res) => {
   try {
-    const production = await Production.findOneAndUpdate(
-        { _id: req.params.id, companyId: req.user.companyId }, 
-        req.body, 
-        { new: true }
-    );
-    res.json(production);
+    const production = await Production.findOne({ _id: req.params.id, companyId: req.user.companyId });
+    if (!production) return res.status(404).json({ message: 'Production not found' });
+    
+    if (isPastMonth(production.date) || (req.body.date && isPastMonth(req.body.date))) {
+      return res.status(400).json({ message: 'Cannot update production in a past month with closed stock.' });
+    }
+
+    Object.assign(production, req.body);
+    const updated = await production.save();
+    res.json(updated);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -149,6 +170,9 @@ const deleteProduction = async (req, res) => {
   try {
     const prod = await Production.findOne({ _id: req.params.id, companyId: req.user.companyId });
     if (prod) {
+        if (isPastMonth(prod.date)) {
+            return res.status(400).json({ message: 'Cannot delete production in a past month with closed stock.' });
+        }
         // ALWAYS use the hard link to delete the exact bottle transaction
         if (prod.bottleAuditId) {
             await BottleInventory.deleteOne({ _id: prod.bottleAuditId });
@@ -190,6 +214,10 @@ const adjustActiveProduction = async (req, res) => {
         const { amount, type } = req.body;
         const production = await Production.findOne({ _id: req.params.id, companyId: req.user.companyId });
         if (!production) return res.status(404).json({ message: 'Production not found' });
+
+        if (isPastMonth(production.date)) {
+            return res.status(400).json({ message: 'Cannot adjust production in a past month with closed stock.' });
+        }
 
         const adj = Number(amount);
         if (type === 'add') {

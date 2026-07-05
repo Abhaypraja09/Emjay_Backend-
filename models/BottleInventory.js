@@ -6,6 +6,8 @@ const bottleInventorySchema = new mongoose.Schema({
   costPerUnit: { type: Number, required: true },
   totalCost: { type: Number, required: true },
   supplierName: { type: String, required: true },
+  partyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Party' },
+  transactionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction' },
   bottleType: { type: String, enum: ['New', 'Old', 'Caps'], default: 'New' }, // Based on user request
   date: { type: Date, default: Date.now },
   type: { type: String, enum: ['IN', 'OUT'], required: true }, // IN for purchase, OUT for production usage

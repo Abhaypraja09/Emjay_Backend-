@@ -1,6 +1,7 @@
 const BankLog = require('../models/BankLog');
 const Order = require('../models/Order');
 const Purchase = require('../models/Purchase');
+const Transaction = require('../models/Transaction');
 
 const getBankLogs = async (req, res) => {
   try {
@@ -34,7 +35,39 @@ const getBankLogs = async (req, res) => {
       referenceId: { $exists: false }
     };
     const rawManualLogs = await BankLog.find(manualLogsQuery).sort({ date: -1 });
-    const manualLogs = rawManualLogs.filter(l => l.paymentMode !== 'Cash');
+    const tempManualLogs = rawManualLogs.filter(l => l.paymentMode !== 'Cash');
+
+    // Batch query transactions in date range to prevent N+1 queries
+    const txQuery = {};
+    if (Object.keys(dateFilter).length) {
+      const padStart = new Date(dateFilter.$gte);
+      padStart.setDate(padStart.getDate() - 2);
+      const padEnd = new Date(dateFilter.$lte);
+      padEnd.setDate(padEnd.getDate() + 2);
+      txQuery.date = { $gte: padStart, $lte: padEnd };
+    }
+    const transactions = await Transaction.find(txQuery).populate('partyId', 'name');
+
+    const manualLogs = [];
+    for (const log of tempManualLogs) {
+      let logObj = log.toObject ? log.toObject() : log;
+      if (logObj.description === 'Payment towards due balance' || !logObj.description) {
+        const logDate = new Date(logObj.date).getTime();
+        const startMs = logDate - 24 * 60 * 60 * 1000;
+        const endMs = logDate + 2 * 24 * 60 * 60 * 1000;
+        
+        const matchingTx = transactions.find(tx => 
+          tx.amount === logObj.amount &&
+          new Date(tx.date).getTime() >= startMs &&
+          new Date(tx.date).getTime() <= endMs
+        );
+        
+        if (matchingTx && matchingTx.partyId) {
+          logObj.description = `Payment ${logObj.type === 'IN' ? 'from' : 'to'} ${matchingTx.partyId.name}`;
+        }
+      }
+      manualLogs.push(logObj);
+    }
 
     // 2. Get ALL orders for the period
     const orderQuery = { companyId: req.user.companyId };

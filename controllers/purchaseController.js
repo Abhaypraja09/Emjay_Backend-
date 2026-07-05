@@ -116,13 +116,21 @@ exports.addPurchase = async (req, res) => {
 
     if (cashAmount > 0) {
         const itemNames = purchase.items ? purchase.items.map(i => i.name).join(', ') : 'Items';
+        let supplierName = purchase.supplier || 'Vendor';
+        if (purchase.partyId) {
+            const Party = require('../models/Party');
+            const party = await Party.findById(purchase.partyId);
+            if (party) {
+                supplierName = party.name;
+            }
+        }
         await new CashLog({
             companyId: purchase.companyId,
             type: 'OUT',
             amount: cashAmount,
             category: 'Purchase',
             paymentMode: 'Cash',
-            description: `Purchase: ${itemNames}`,
+            description: `Purchase: ${itemNames} from ${supplierName}`,
             date: purchase.date || Date.now(),
             referenceId: purchase._id
         }).save();
@@ -242,13 +250,21 @@ exports.updatePurchase = async (req, res) => {
 
     if (updatedCashAmount > 0) {
         const itemNames = purchase.items ? purchase.items.map(i => i.name).join(', ') : 'Items';
+        let supplierName = purchase.supplier || 'Vendor';
+        if (purchase.partyId) {
+            const Party = require('../models/Party');
+            const party = await Party.findById(purchase.partyId);
+            if (party) {
+                supplierName = party.name;
+            }
+        }
         await new CashLog({
             companyId: purchase.companyId,
             type: 'OUT',
             amount: updatedCashAmount,
             category: 'Purchase',
             paymentMode: 'Cash',
-            description: `Purchase: ${itemNames}`,
+            description: `Purchase: ${itemNames} from ${supplierName}`,
             date: purchase.date || Date.now(),
             referenceId: purchase._id
         }).save();
