@@ -176,23 +176,47 @@ const updateOrder = async (req, res) => {
     // Inventory Validation (Pre-check)
     for (const it of items) {
        const jtId = it.juiceType?._id || it.juiceType;
-       const product = await Product.findOne({ _id: jtId, companyId: req.user.companyId });
        const oldItem = oldOrder.items.find(oi => oi.juiceType.toString() === jtId.toString());
        const oldQty = oldItem ? oldItem.quantity : 0;
        
        // New Stock Needed = New Qty - Old Qty
        const diff = Number(it.quantity) - oldQty;
-       if (product.currentStock < diff) {
-         return res.status(400).json({ message: `Insufficient stock. Additional required: ${diff}, Available: ${product.currentStock}` });
+       if (diff > 0) {
+         if (oldOrder.sourceBranchId) {
+           const stock = await BranchStock.findOne({ companyId: req.user.companyId, partyId: oldOrder.sourceBranchId, juiceType: jtId });
+           if (!stock || stock.quantity < diff) {
+             return res.status(400).json({ message: `Insufficient stock in Branch. Additional required: ${diff}, Available: ${stock ? stock.quantity : 0}` });
+           }
+         } else {
+           const product = await Product.findOne({ _id: jtId, companyId: req.user.companyId });
+           if (product.currentStock < diff) {
+             return res.status(400).json({ message: `Insufficient stock. Additional required: ${diff}, Available: ${product.currentStock}` });
+           }
+         }
        }
     }
 
     // Inventory Rollback
     for (const item of oldOrder.items) {
       const jtId = item.juiceType?._id || item.juiceType;
-      await Product.findByIdAndUpdate(jtId, { $inc: { currentStock: item.quantity } });
-      const okd = new Date(oldOrder.date); okd.setHours(0, 0, 0, 0);
-      await Production.findOneAndUpdate({ juiceType: jtId, companyId: req.user.companyId, date: { $gte: okd, $lt: new Date(okd.getTime() + 86400000) } }, { $inc: { salesDuringProduction: -item.quantity } });
+      
+      if (oldOrder.sourceBranchId) {
+        await BranchStock.findOneAndUpdate(
+          { companyId: req.user.companyId, partyId: oldOrder.sourceBranchId, juiceType: jtId },
+          { $inc: { quantity: item.quantity } }
+        );
+        await BranchTransfer.deleteOne({
+          companyId: req.user.companyId,
+          partyId: oldOrder.sourceBranchId,
+          juiceType: jtId,
+          type: 'OUT',
+          quantity: item.quantity
+        });
+      } else {
+        await Product.findByIdAndUpdate(jtId, { $inc: { currentStock: item.quantity } });
+        const okd = new Date(oldOrder.date); okd.setHours(0, 0, 0, 0);
+        await Production.findOneAndUpdate({ juiceType: jtId, companyId: req.user.companyId, date: { $gte: okd, $lt: new Date(okd.getTime() + 86400000) } }, { $inc: { salesDuringProduction: -item.quantity } });
+      }
 
       // Rollback Branch Stock
       if (['Branch Transfer', 'Distributor'].includes(oldOrder.type) && oldOrder.partyId) {
@@ -205,8 +229,7 @@ const updateOrder = async (req, res) => {
           partyId: oldOrder.partyId,
           juiceType: jtId,
           type: 'IN',
-          quantity: item.quantity,
-          date: oldOrder.date
+          quantity: item.quantity
         });
       }
     }
@@ -256,16 +279,34 @@ const updateOrder = async (req, res) => {
     // Subtract new stock
     for (const item of updatedOrder.items) {
       const jtId = item.juiceType?._id || item.juiceType;
-      await Product.findByIdAndUpdate(jtId, { $inc: { currentStock: -item.quantity } });
-      const nkd = new Date(updatedOrder.date); nkd.setHours(0, 0, 0, 0);
-      await Production.findOneAndUpdate(
-          { juiceType: jtId, companyId: req.user.companyId, date: { $gte: nkd, $lt: new Date(nkd.getTime() + 86400000) } }, 
-          { 
-              $inc: { salesDuringProduction: item.quantity },
-              $setOnInsert: { quantityProduced: 0, date: nkd }
-          }, 
-          { upsert: true }
-      );
+      
+      if (updatedOrder.sourceBranchId) {
+        await BranchStock.findOneAndUpdate(
+          { companyId: req.user.companyId, partyId: updatedOrder.sourceBranchId, juiceType: jtId },
+          { $inc: { quantity: -item.quantity } }
+        );
+        await BranchTransfer.create({
+          companyId: req.user.companyId,
+          partyId: updatedOrder.sourceBranchId,
+          juiceType: jtId,
+          type: 'OUT',
+          quantity: item.quantity,
+          rate: item.price,
+          date: updatedOrder.date,
+          description: `Sale to ${updatedOrder.customerName}`
+        });
+      } else {
+        await Product.findByIdAndUpdate(jtId, { $inc: { currentStock: -item.quantity } });
+        const nkd = new Date(updatedOrder.date); nkd.setHours(0, 0, 0, 0);
+        await Production.findOneAndUpdate(
+            { juiceType: jtId, companyId: req.user.companyId, date: { $gte: nkd, $lt: new Date(nkd.getTime() + 86400000) } }, 
+            { 
+                $inc: { salesDuringProduction: item.quantity },
+                $setOnInsert: { quantityProduced: 0, date: nkd }
+            }, 
+            { upsert: true }
+        );
+      }
 
       // Apply Branch Stock
       if (['Branch Transfer', 'Distributor'].includes(updatedOrder.type) && updatedOrder.partyId) {
@@ -336,9 +377,24 @@ const deleteOrder = async (req, res) => {
     if (!order) return res.status(404).json({ message: 'Order not found' });
     for (const item of order.items) {
       const jtId = item.juiceType?._id || item.juiceType;
-      await Product.findByIdAndUpdate(jtId, { $inc: { currentStock: item.quantity } });
-      const okd = new Date(order.date); okd.setHours(0, 0, 0, 0);
-      await Production.findOneAndUpdate({ juiceType: jtId, companyId: req.user.companyId, date: { $gte: okd, $lt: new Date(okd.getTime() + 86400000) } }, { $inc: { salesDuringProduction: -item.quantity } });
+      
+      if (order.sourceBranchId) {
+        await BranchStock.findOneAndUpdate(
+          { companyId: req.user.companyId, partyId: order.sourceBranchId, juiceType: jtId },
+          { $inc: { quantity: item.quantity } }
+        );
+        await BranchTransfer.deleteOne({
+          companyId: req.user.companyId,
+          partyId: order.sourceBranchId,
+          juiceType: jtId,
+          type: 'OUT',
+          quantity: item.quantity
+        });
+      } else {
+        await Product.findByIdAndUpdate(jtId, { $inc: { currentStock: item.quantity } });
+        const okd = new Date(order.date); okd.setHours(0, 0, 0, 0);
+        await Production.findOneAndUpdate({ juiceType: jtId, companyId: req.user.companyId, date: { $gte: okd, $lt: new Date(okd.getTime() + 86400000) } }, { $inc: { salesDuringProduction: -item.quantity } });
+      }
 
       // Reverse Branch Stock if it was a transfer
       if (['Branch Transfer', 'Distributor'].includes(order.type) && order.partyId) {
@@ -346,14 +402,13 @@ const deleteOrder = async (req, res) => {
           { companyId: req.user.companyId, partyId: order.partyId, juiceType: jtId },
           { $inc: { quantity: -item.quantity } }
         );
-        // Delete the BranchTransfer log for this specific date/type/quantity (approximation or we could just delete all INs matching this date/party/product)
+        // Delete the BranchTransfer log for this specific quantity (removed date to avoid discrepancies)
         await BranchTransfer.deleteOne({
           companyId: req.user.companyId,
           partyId: order.partyId,
           juiceType: jtId,
           type: 'IN',
-          quantity: item.quantity,
-          date: order.date
+          quantity: item.quantity
         });
       }
     }
