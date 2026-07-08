@@ -1,21 +1,20 @@
 const mongoose = require('mongoose');
-mongoose.connect('mongodb://localhost:27017/emjay').then(async () => {
-  const Order = require('./models/Order');
-  const CashLog = require('./models/CashLog');
-  const BankLog = require('./models/BankLog');
-  const orders = await Order.find();
-  console.log('Total Orders:', orders.length);
-  orders.forEach(o => {
-    console.log(`Order ${o._id}: type=${o.type} pm=${o.paymentMode} total=${o.totalAmount} paid=${o.paidAmount} cash=${o.paidCash} online=${o.paidOnline}`);
-  });
+const User = require('./models/User');
+
+async function test() {
+  await mongoose.connect('mongodb://yatree_admin:Mayank123@ac-n3u3fkt-shard-00-00.iuq9w0n.mongodb.net:27017,ac-n3u3fkt-shard-00-01.iuq9w0n.mongodb.net:27017,ac-n3u3fkt-shard-00-02.iuq9w0n.mongodb.net:27017/emjay_brewery?authSource=admin&tls=true');
   
-  const cashLogs = await CashLog.find();
-  console.log('Total CashLogs:', cashLogs.length);
-  cashLogs.forEach(c => console.log('CashLog:', c._id, c.category, c.amount, c.paymentMode, c.referenceId));
-
-  const bankLogs = await BankLog.find();
-  console.log('Total BankLogs:', bankLogs.length);
-  bankLogs.forEach(b => console.log('BankLog:', b._id, b.category, b.amount, b.paymentMode, b.referenceId));
-
+  const email = 'abhay123';
+  const user = await User.findOne({ 
+      $or: [{ email }, { username: email }, { mobile: email }] 
+    }).populate('branchId');
+    
+  console.log('Query result:', user ? 'Found' : 'Not Found');
+  if (user) {
+    const isMatch = await user.comparePassword('abhay123'); // or whatever
+    console.log('Password match:', isMatch);
+  }
+  
   process.exit(0);
-});
+}
+test().catch(console.error);

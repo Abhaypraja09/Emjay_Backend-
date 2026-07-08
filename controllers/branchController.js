@@ -10,6 +10,9 @@ const getBranchStocks = async (req, res) => {
     
     // Filter transfers by month/year
     const query = { companyId: req.user.companyId };
+    if (req.user.role === 'branch_admin' && req.user.branchId) {
+      query.partyId = req.user.branchId;
+    }
     let startDate, endDate;
     if (month !== undefined && year !== undefined) {
       const m = parseInt(month);
@@ -38,6 +41,7 @@ const getBranchStocks = async (req, res) => {
       { 
         $match: { 
           companyId: req.user.companyId,
+          ...(req.user.role === 'branch_admin' && req.user.branchId ? { partyId: req.user.branchId } : {}),
           date: { $lte: endDate }
         }
       },

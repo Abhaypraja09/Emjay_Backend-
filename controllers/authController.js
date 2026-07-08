@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Party = require('../models/Party');
 const jwt = require('jsonwebtoken');
 
 const generateToken = (id) => {
@@ -55,13 +56,15 @@ const authUser = async (req, res) => {
   try {
     const user = await User.findOne({ 
       $or: [{ email }, { username: email }, { mobile: email }] 
-    });
+    }).populate('branchId');
     if (user && (await user.comparePassword(password))) {
       res.json({
         _id: user._id,
         name: user.name,
         email: user.email || user.username,
         role: user.role,
+        branchId: user.branchId ? user.branchId._id : null,
+        branchName: user.branchId ? user.branchId.name : null,
         token: generateToken(user._id),
       });
     } else {

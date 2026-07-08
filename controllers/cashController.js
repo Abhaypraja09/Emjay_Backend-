@@ -2,6 +2,7 @@ const CashLog = require('../models/CashLog');
 const Order = require('../models/Order');
 const Purchase = require('../models/Purchase');
 const Transaction = require('../models/Transaction');
+const Party = require('../models/Party');
 
 const getCashLogs = async (req, res) => {
   try {
@@ -29,6 +30,11 @@ const getCashLogs = async (req, res) => {
       ...(Object.keys(dateFilter).length ? { date: dateFilter } : {}),
       referenceId: { $exists: false } // Only manual entries without a linked order/purchase
     };
+    if (req.user.role === 'branch_admin' && req.user.branchId) {
+      manualLogsQuery.branchId = req.user.branchId;
+    } else {
+      manualLogsQuery.$or = [{ branchId: null }, { branchId: { $exists: false } }];
+    }
     const rawManualLogs = await CashLog.find(manualLogsQuery).sort({ date: -1 });
     const tempManualLogs = rawManualLogs.filter(l => l.paymentMode === 'Cash' || !l.paymentMode);
 
@@ -67,11 +73,20 @@ const getCashLogs = async (req, res) => {
     // 2. Get ALL orders for the period
     const orderQuery = { companyId: req.user.companyId };
     if (Object.keys(dateFilter).length) orderQuery.date = dateFilter;
+    if (req.user.role === 'branch_admin' && req.user.branchId) {
+      orderQuery.sourceBranchId = req.user.branchId;
+    } else {
+      orderQuery.$or = [{ sourceBranchId: null }, { sourceBranchId: { $exists: false } }];
+    }
     const orders = await Order.find(orderQuery).sort({ date: -1 });
 
     // 3. Get all purchases for the period
     const purchaseQuery = { companyId: req.user.companyId };
     if (Object.keys(dateFilter).length) purchaseQuery.date = dateFilter;
+    if (req.user.role === 'branch_admin' && req.user.branchId) {
+      // Assuming purchases don't have branchId right now, we can skip showing main purchases to branch admins
+      purchaseQuery._id = null; // No purchases for branch admin
+    }
     const purchases = await Purchase.find(purchaseQuery).populate('partyId', 'name').sort({ date: -1 });
 
     // Convert orders to CashLog-shaped entries (ONLY CASH, ONLY PAID AMOUNT)
@@ -119,15 +134,29 @@ const getCashLogs = async (req, res) => {
 
     // Calculate Opening Balance if startDate is present
     if (dateFilter.$gte) {
-        const prevManualLogs = await CashLog.find({ companyId: req.user.companyId, date: { $lt: dateFilter.$gte }, referenceId: { $exists: false } });
+        const prevManualQuery = { companyId: req.user.companyId, date: { $lt: dateFilter.$gte }, referenceId: { $exists: false } };
+        if (req.user.role === 'branch_admin' && req.user.branchId) {
+            prevManualQuery.branchId = req.user.branchId;
+        } else {
+            prevManualQuery.$or = [{ branchId: null }, { branchId: { $exists: false } }];
+        }
+        const prevManualLogs = await CashLog.find(prevManualQuery);
         const filteredPrevManual = prevManualLogs.filter(l => l.paymentMode === 'Cash' || !l.paymentMode);
         
-        const prevOrders = await Order.find({ companyId: req.user.companyId, date: { $lt: dateFilter.$gte } });
+        const prevOrderQuery = { companyId: req.user.companyId, date: { $lt: dateFilter.$gte } };
+        if (req.user.role === 'branch_admin' && req.user.branchId) {
+            prevOrderQuery.sourceBranchId = req.user.branchId;
+        } else {
+            prevOrderQuery.$or = [{ sourceBranchId: null }, { sourceBranchId: { $exists: false } }];
+        }
+        const prevOrders = await Order.find(prevOrderQuery);
         const filteredPrevOrders = prevOrders
           .filter(o => o.paymentMode === 'Cash' || o.paymentMode === 'Split' || !o.paymentMode)
           .filter(o => (o.paymentMode === 'Split' ? o.paidCash > 0 : o.paidAmount > 0));
           
-        const prevPurchases = await Purchase.find({ companyId: req.user.companyId, date: { $lt: dateFilter.$gte } });
+        const prevPurchaseQuery = { companyId: req.user.companyId, date: { $lt: dateFilter.$gte } };
+        if (req.user.role === 'branch_admin' && req.user.branchId) prevPurchaseQuery._id = null;
+        const prevPurchases = await Purchase.find(prevPurchaseQuery);
         const filteredPrevPurchases = prevPurchases.filter(p => p.status === 'Cash' || p.status === 'paid' || p.status === 'Paid' || (p.status === 'Split' && p.paidCash > 0));
 
         let prevIn = 0;
@@ -188,7 +217,8 @@ const addCashLog = async (req, res) => {
   try {
     const newLog = new CashLog({
       ...req.body,
-      companyId: req.user.companyId
+      companyId: req.user.companyId,
+      ...(req.user.role === 'branch_admin' && req.user.branchId ? { branchId: req.user.branchId } : {})
     });
     await newLog.save();
     res.status(201).json(newLog);
@@ -215,9 +245,48 @@ const updateCashLog = async (req, res) => {
   }
 };
 
+const transferToMain = async (req, res) => {
+  try {
+    const { amount, date, remarks } = req.body;
+    if (req.user.role !== 'branch_admin' || !req.user.branchId) {
+       return res.status(403).json({ message: 'Only branch admin can transfer to main company' });
+    }
+    
+    // Create OUT log for branch
+    const branchLog = new CashLog({
+       companyId: req.user.companyId,
+       branchId: req.user.branchId,
+       type: 'OUT',
+       category: 'Transfer To Main',
+       amount: Number(amount),
+       description: remarks || 'Transferred to Main Office',
+       paymentMode: 'Cash',
+       date: date || new Date()
+    });
+    await branchLog.save();
+    
+    // Create IN log for main
+    const mainLog = new CashLog({
+       companyId: req.user.companyId,
+       type: 'IN',
+       category: 'Transfer From Branch',
+       amount: Number(amount),
+       description: remarks || 'Received from Branch',
+       paymentMode: 'Cash',
+       date: date || new Date()
+    });
+    await mainLog.save();
+    
+    res.status(200).json({ message: 'Transfer successful', branchLog, mainLog });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getCashLogs,
   addCashLog,
   deleteCashLog,
-  updateCashLog
+  updateCashLog,
+  transferToMain
 };

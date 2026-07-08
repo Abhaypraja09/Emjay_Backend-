@@ -7,9 +7,10 @@ const userSchema = new mongoose.Schema({
   username: { type: String, sparse: true, unique: true },
   mobile: { type: String },
   password: { type: String, required: true },
-  role: { type: String, enum: ['admin', 'staff', 'vendor', 'Staff'], default: 'staff' },
+  role: { type: String, enum: ['admin', 'branch_admin', 'staff', 'vendor', 'Staff'], default: 'staff' },
   salary: { type: Number, default: 0 },
   companyId: { type: String, required: true, default: 'emjay-master' }, // For Multi-tenancy
+  branchId: { type: mongoose.Schema.Types.ObjectId, ref: 'Party' }, // Link to branch
   faceDescriptor: { type: [Number] },
   designation: { type: String },
   joiningDate: { type: Date },

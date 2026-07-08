@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const cashLogSchema = new mongoose.Schema({
   companyId: { type: String, required: true, default: 'emjay-master' },
+  branchId: { type: mongoose.Schema.Types.ObjectId, ref: 'Party' }, // Link to branch
   type: { type: String, enum: ['IN', 'OUT'], required: true },
   amount: { type: Number, required: true },
   category: { type: String, required: true }, // e.g. 'Sale', 'Purchase', 'Salary', 'Rent', 'Other'

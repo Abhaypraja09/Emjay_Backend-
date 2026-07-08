@@ -49,6 +49,9 @@ const generateNextInvoiceNo = async (companyId, date) => {
 
 const createOrder = async (req, res) => {
   try {
+    if (req.user.role === 'branch_admin' && req.user.branchId) {
+      req.body.sourceBranchId = req.user.branchId;
+    }
     for (const item of req.body.items) {
       const jtId = item.juiceType?._id || item.juiceType;
       if (req.body.sourceBranchId) {
@@ -158,6 +161,9 @@ const getOrders = async (req, res) => {
         endDate = new Date(actualYear, m, 0, 23, 59, 59, 999);
       }
       query.date = { $gte: startDate, $lte: endDate };
+    }
+    if (req.user.role === 'branch_admin' && req.user.branchId) {
+      query.sourceBranchId = req.user.branchId;
     }
 
     const orders = await Order.find(query).populate('items.juiceType').sort({ date: 1 });
