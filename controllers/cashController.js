@@ -247,7 +247,7 @@ const updateCashLog = async (req, res) => {
 
 const transferToMain = async (req, res) => {
   try {
-    const { amount, date, remarks } = req.body;
+    const { amount, date } = req.body;
     if (req.user.role !== 'branch_admin' || !req.user.branchId) {
        return res.status(403).json({ message: 'Only branch admin can transfer to main company' });
     }
@@ -259,7 +259,7 @@ const transferToMain = async (req, res) => {
        type: 'OUT',
        category: 'Transfer To Main',
        amount: Number(amount),
-       description: remarks || 'Transferred to Main Office',
+       description: 'Main Office Transferred',
        paymentMode: 'Cash',
        date: date || new Date()
     });
@@ -271,7 +271,7 @@ const transferToMain = async (req, res) => {
        type: 'IN',
        category: 'Transfer From Branch',
        amount: Number(amount),
-       description: remarks || 'Received from Branch',
+       description: `Received from Branch (${req.user.branchId})`,
        paymentMode: 'Cash',
        date: date || new Date()
     });
