@@ -43,7 +43,7 @@ const generateNextInvoiceNo = async (companyId, date) => {
     }
   }
 
-  return `E-B-${nextNum.toString().padStart(2, '0')}`;
+  return `EB-${nextNum.toString().padStart(2, '0')}`;
 };
 
 const createOrder = async (req, res) => {
