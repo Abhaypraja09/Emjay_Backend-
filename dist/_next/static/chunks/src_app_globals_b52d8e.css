@@ -693,6 +693,9 @@ video {
 .aspect-square {
   aspect-ratio: 1/ 1;
 }
+.h-0 {
+  height: 0px;
+}
 .h-0\.5 {
   height: 0.125rem;
 }
@@ -825,6 +828,9 @@ video {
 .min-h-screen {
   min-height: 100vh;
 }
+.w-0 {
+  width: 0px;
+}
 .w-1 {
   width: 0.25rem;
 }
@@ -928,6 +934,9 @@ video {
 }
 .min-w-\[800px\] {
   min-width: 800px;
+}
+.min-w-\[80px\] {
+  min-width: 80px;
 }
 .max-w-2xl {
   max-width: 42rem;
@@ -3648,6 +3657,10 @@ body {
 .group:hover .group-hover\:bg-indigo-600 {
   --tw-bg-opacity: 1;
   background-color: rgb(79 70 229/ var(--tw-bg-opacity, 1));
+}
+.group:hover .group-hover\:text-blue-500 {
+  --tw-text-opacity: 1;
+  color: rgb(59 130 246/ var(--tw-text-opacity, 1));
 }
 .group:hover .group-hover\:text-blue-700 {
   --tw-text-opacity: 1;
