@@ -25,26 +25,25 @@ const getFinancialYearDates = (date) => {
 
 const generateNextInvoiceNo = async (companyId, date) => {
   const { startDate, endDate } = getFinancialYearDates(date);
-  const prefix = `EB-`;
   
   const latestOrder = await Order.findOne({ 
     companyId, 
     date: { $gte: startDate, $lte: endDate },
-    invoiceNo: { $regex: `^${prefix}` } 
+    invoiceNo: { $regex: /^E-?B-/i } 
   }).sort({ createdAt: -1 });
 
   let nextNum = 1;
   if (latestOrder && latestOrder.invoiceNo) {
-    const parts = latestOrder.invoiceNo.split('-');
-    if (parts.length === 2) {
-      const lastNum = parseInt(parts[1], 10);
+    const match = latestOrder.invoiceNo.match(/\d+$/);
+    if (match) {
+      const lastNum = parseInt(match[0], 10);
       if (!isNaN(lastNum)) {
         nextNum = lastNum + 1;
       }
     }
   }
 
-  return `${prefix}${nextNum.toString().padStart(2, '0')}`;
+  return `E-B-${nextNum.toString().padStart(2, '0')}`;
 };
 
 const createOrder = async (req, res) => {
@@ -457,4 +456,22 @@ const updateOrderPayment = async (req, res) => {
   } catch (error) { res.status(400).json({ message: error.message }); }
 };
 
-module.exports = { createOrder, getOrders, updateOrder, deleteOrder, updateOrderStatus, updateOrderPayment };
+const fetchNextInvoiceNo = async (req, res) => {
+  try {
+    const date = req.query.date || new Date();
+    const invoiceNo = await generateNextInvoiceNo(req.user.companyId, date);
+    res.json({ invoiceNo });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports = {
+  createOrder,
+  getOrders,
+  updateOrderStatus,
+  updateOrderPayment,
+  deleteOrder,
+  updateOrder,
+  fetchNextInvoiceNo
+};
