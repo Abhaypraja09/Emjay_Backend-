@@ -67,6 +67,31 @@ exports.deleteParty = async (req, res) => {
   }
 };
 
+exports.getAllTransactions = async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    let query = {};
+    if (month && year && month !== 'All' && year !== 'All') {
+      const m = parseInt(month);
+      const y = parseInt(year);
+      let startDate, endDate;
+      if (m === 0) {
+        startDate = new Date(y, 3, 1);
+        endDate = new Date(y + 1, 2, 31, 23, 59, 59, 999);
+      } else {
+        const actualYear = m <= 3 ? y + 1 : y;
+        startDate = new Date(actualYear, m - 1, 1);
+        endDate = new Date(actualYear, m, 0, 23, 59, 59, 999);
+      }
+      query.date = { $gte: startDate, $lte: endDate };
+    }
+    const transactions = await Transaction.find(query).populate('partyId').sort({ date: -1 });
+    res.json(transactions);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 exports.getTransactions = async (req, res) => {
   try {
     const transactions = await Transaction.find({ partyId: req.params.partyId })
