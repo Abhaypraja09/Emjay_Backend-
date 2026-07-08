@@ -25,7 +25,7 @@ const getFinancialYearDates = (date) => {
 
 const generateNextInvoiceNo = async (companyId, date) => {
   const { startDate, endDate } = getFinancialYearDates(date);
-  const prefix = `E-B-`;
+  const prefix = `EB-`;
   
   const latestOrder = await Order.findOne({ 
     companyId, 
@@ -36,8 +36,8 @@ const generateNextInvoiceNo = async (companyId, date) => {
   let nextNum = 1;
   if (latestOrder && latestOrder.invoiceNo) {
     const parts = latestOrder.invoiceNo.split('-');
-    if (parts.length === 3) {
-      const lastNum = parseInt(parts[2], 10);
+    if (parts.length === 2) {
+      const lastNum = parseInt(parts[1], 10);
       if (!isNaN(lastNum)) {
         nextNum = lastNum + 1;
       }

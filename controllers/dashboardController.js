@@ -130,11 +130,11 @@ const getDailyReport = async (req, res) => {
         const dateRange = { $gte: startOfDay, $lte: endOfDay };
 
         const [productions, orders, bottles, branchTransfers, purchases] = await Promise.all([
-            Production.find({ date: dateRange, companyId: req.user.companyId }).populate('juiceType'),
-            Order.find({ createdAt: dateRange, companyId: req.user.companyId }).populate('items.juiceType'),
-            BottleInventory.find({ date: dateRange, companyId: req.user.companyId }),
-            BranchTransfer.find({ date: dateRange, companyId: req.user.companyId }).populate('partyId').populate('juiceType'),
-            Purchase.find({ date: dateRange, companyId: req.user.companyId }).populate('partyId')
+            Production.find({ date: dateRange, companyId: req.user.companyId }).sort({ createdAt: -1 }).populate('juiceType'),
+            Order.find({ date: dateRange, companyId: req.user.companyId }).sort({ createdAt: -1 }).populate('items.juiceType'),
+            BottleInventory.find({ date: dateRange, companyId: req.user.companyId }).sort({ createdAt: -1 }),
+            BranchTransfer.find({ date: dateRange, companyId: req.user.companyId }).sort({ createdAt: -1 }).populate('partyId').populate('juiceType'),
+            Purchase.find({ date: dateRange, companyId: req.user.companyId }).sort({ createdAt: -1 }).populate('partyId')
         ]);
 
         const productionBreakdown = productions.reduce((acc, p) => {
