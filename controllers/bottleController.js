@@ -174,13 +174,30 @@ const addBottlePurchase = async (req, res) => {
 
 const getBottleStock = async (req, res) => {
   try {
-    const { month, year } = req.query;
+    const { month, year, date } = req.query;
     
     // 1. Get ALL records to calculate cumulative stock (Available Empty Bottles & Caps)
     const allRecords = await BottleInventory.find({ companyId: req.user.companyId }).sort({ date: 1 });
 
-    // Cumulative Calculations (Total of all time)
-    const allBottles = allRecords.filter(r => r.bottleType !== 'Caps');
+    let upToDateRecords = allRecords;
+    if (date) {
+        const endDate = new Date(date + 'T23:59:59.999Z');
+        upToDateRecords = allRecords.filter(r => new Date(r.date) <= endDate);
+    } else if (month !== undefined && year !== undefined) {
+        const m = parseInt(month);
+        const y = parseInt(year);
+        let endDate;
+        if (m === 0) {
+            endDate = new Date(Date.UTC(y + 1, 2, 31, 23, 59, 59, 999));
+        } else {
+            const actualYear = m <= 3 ? y + 1 : y;
+            endDate = new Date(Date.UTC(actualYear, m, 0, 23, 59, 59, 999));
+        }
+        upToDateRecords = allRecords.filter(r => new Date(r.date) <= endDate);
+    }
+
+    // Cumulative Calculations (Total of all time up to selected date/month)
+    const allBottles = upToDateRecords.filter(r => r.bottleType !== 'Caps');
     const totalBottlesIn = allBottles.filter(r => r.type === 'IN').reduce((acc, r) => acc + r.quantity, 0);
     const totalBottlesOut = allBottles.filter(r => r.type === 'OUT').reduce((acc, r) => acc + r.quantity, 0);
     const availableEmptyBottles = totalBottlesIn - totalBottlesOut;
@@ -190,9 +207,13 @@ const getBottleStock = async (req, res) => {
     const totalCapsOut = allCaps.filter(r => r.type === 'OUT').reduce((acc, r) => acc + r.quantity, 0);
     const availableCaps = totalCapsIn - totalCapsOut;
 
-    // 2. Filter records for the specific month for history display
+    // 2. Filter records for the specific period for history display
     let history = allRecords;
-    if (month !== undefined && year !== undefined) {
+    if (date) {
+        const startDate = new Date(date + 'T00:00:00.000Z');
+        const endDate = new Date(date + 'T23:59:59.999Z');
+        history = allRecords.filter(r => new Date(r.date) >= startDate && new Date(r.date) <= endDate);
+    } else if (month !== undefined && year !== undefined) {
       const m = parseInt(month);
       const y = parseInt(year);
       let startDate, endDate;

@@ -116,7 +116,9 @@ const getProductionStockReport = async (req, res) => {
     // Inject carry-forward entry for the 1st of the month if filtering by month
     if (sDate && eDate && req.query.month !== undefined) {
        const beforeEntries = report.filter(r => r.date < sDate);
-       const carriedForward = beforeEntries.length > 0 ? beforeEntries[beforeEntries.length - 1].closingStock : 0;
+       const carriedForward = beforeEntries.length > 0 
+           ? beforeEntries[beforeEntries.length - 1].closingStock 
+           : (report.length > 0 ? report[0].openingStock : 0);
        
        if (filteredReport.length === 0 || filteredReport[0].date > sDate) {
            filteredReport.unshift({
@@ -216,7 +218,9 @@ const getBottleStockReport = async (req, res) => {
     // Inject carry-forward entry for the 1st of the month if filtering by month
     if (sDate && eDate && req.query.month !== undefined) {
        const beforeEntries = report.filter(r => r.date < sDate);
-       const carriedForward = beforeEntries.length > 0 ? beforeEntries[beforeEntries.length - 1].closingStock : 0;
+       const carriedForward = beforeEntries.length > 0 
+           ? beforeEntries[beforeEntries.length - 1].closingStock 
+           : (report.length > 0 ? report[0].openingStock : 0);
        
        if (filteredReport.length === 0 || filteredReport[0].date > sDate) {
            filteredReport.unshift({
@@ -296,7 +300,9 @@ const getGlobalStockReport = async (req, res) => {
       const eDate = new Date(Date.UTC(year, month, 0)).toISOString().split('T')[0];
       
       const beforeEntries = report.filter(r => r.date < sDate);
-      const carriedForward = beforeEntries.length > 0 ? beforeEntries[beforeEntries.length - 1].closingStock : 0;
+      const carriedForward = beforeEntries.length > 0 
+          ? beforeEntries[beforeEntries.length - 1].closingStock 
+          : (report.length > 0 ? report[0].openingStock : 0);
 
       filteredReport = filteredReport.filter(r => r.date >= sDate && r.date <= eDate);
 

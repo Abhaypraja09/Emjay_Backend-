@@ -25,16 +25,20 @@ const getProducts = async (req, res) => {
   try {
     const products = await Product.find({ companyId: req.user.companyId }).lean();
     
-    if (req.query.month !== undefined && req.query.year !== undefined) {
-      const m = parseInt(req.query.month);
-      const y = parseInt(req.query.year);
-      
+    if (req.query.date || (req.query.month !== undefined && req.query.year !== undefined)) {
       let endDate;
-      if (m === 0) {
-        endDate = new Date(Date.UTC(y + 1, 2, 31, 23, 59, 59, 999));
+      
+      if (req.query.date) {
+        endDate = new Date(req.query.date + 'T23:59:59.999Z');
       } else {
-        const actualYear = m <= 3 ? y + 1 : y;
-        endDate = new Date(Date.UTC(actualYear, m, 0, 23, 59, 59, 999));
+        const m = parseInt(req.query.month);
+        const y = parseInt(req.query.year);
+        if (m === 0) {
+          endDate = new Date(Date.UTC(y + 1, 2, 31, 23, 59, 59, 999));
+        } else {
+          const actualYear = m <= 3 ? y + 1 : y;
+          endDate = new Date(Date.UTC(actualYear, m, 0, 23, 59, 59, 999));
+        }
       }
 
       const Production = require('../models/Production');
