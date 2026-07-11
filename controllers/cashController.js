@@ -32,8 +32,6 @@ const getCashLogs = async (req, res) => {
     };
     if (req.user.role === 'branch_admin' && req.user.branchId) {
       manualLogsQuery.branchId = req.user.branchId;
-    } else {
-      manualLogsQuery.$or = [{ branchId: null }, { branchId: { $exists: false } }];
     }
     const rawManualLogs = await CashLog.find(manualLogsQuery).sort({ date: -1 });
     const tempManualLogs = rawManualLogs.filter(l => l.paymentMode === 'Cash' || !l.paymentMode);
@@ -75,8 +73,6 @@ const getCashLogs = async (req, res) => {
     if (Object.keys(dateFilter).length) orderQuery.date = dateFilter;
     if (req.user.role === 'branch_admin' && req.user.branchId) {
       orderQuery.sourceBranchId = req.user.branchId;
-    } else {
-      orderQuery.$or = [{ sourceBranchId: null }, { sourceBranchId: { $exists: false } }];
     }
     const orders = await Order.find(orderQuery).sort({ date: -1 });
 
