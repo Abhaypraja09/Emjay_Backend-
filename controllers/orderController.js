@@ -258,6 +258,13 @@ const updateOrder = async (req, res) => {
       price: Number(it.price)
     }));
 
+    const calculatedGrandTotal = Number(totalAmount) + Number(req.body.gst || 0) - Number(req.body.discount || 0);
+    const calculatedPaidAmount = Number(paidAmount || 0);
+    const calculatedDueAmount = calculatedGrandTotal - calculatedPaidAmount;
+    let calculatedPaymentStatus = 'unpaid';
+    if (calculatedPaidAmount >= calculatedGrandTotal) calculatedPaymentStatus = 'paid';
+    else if (calculatedPaidAmount > 0) calculatedPaymentStatus = 'partial';
+
     await mongoose.connection.db.collection('orders').updateOne(
         { _id: new mongoose.Types.ObjectId(id) },
         { 
@@ -267,13 +274,17 @@ const updateOrder = async (req, res) => {
             type,
             items: rawItems,
             totalAmount: Number(totalAmount),
-            paidAmount: Number(paidAmount || 0),
+            paidAmount: calculatedPaidAmount,
+            paidCash: Number(req.body.paidCash || 0),
+            paidOnline: Number(req.body.paidOnline || 0),
             paymentMode: req.body.paymentMode || oldOrder.paymentMode || 'Cash',
+            paymentStatus: calculatedPaymentStatus,
             gst: Number(req.body.gst || 0),
             discount: Number(req.body.discount || 0),
+            grandTotal: calculatedGrandTotal,
             date: date ? new Date(date) : oldOrder.date,
             partyId: req.body.partyId ? new mongoose.Types.ObjectId(req.body.partyId) : null,
-            dueAmount: Number(req.body.dueAmount || 0),
+            dueAmount: calculatedDueAmount,
             updatedAt: new Date()
           }
         }
